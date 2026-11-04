@@ -1124,8 +1124,20 @@ details.card.more { padding: 18px 22px; }
     var futur = fut.length >= 3;
     return { list: (futur ? fut : inWin).concat(undated), futur: futur, w: w };
   }
+  /* Nombre de titulaires par équipe dans chaque jeu (un remplaçant se rajoute à la main). */
+  var EQUIPE = { "Age of Empires II": 1, "Apex Legends": 3, "Brawl Stars": 3, "Call of Duty": 4, "Clash Royale": 1, "Counter-Strike 2": 5, "Dota 2": 5, "EA Sports FC": 1, "Fortnite": 3, "Free Fire": 4, "Halo": 4, "League of Legends": 5, "Marvel Rivals": 6, "Mobile Legends": 5, "Overwatch 2": 5, "PUBG": 4, "Rainbow Six Siege": 5, "Rocket League": 3, "Starcraft II": 1, "Street Fighter 6": 1, "Super Smash Bros.": 1, "Teamfight Tactics": 1, "Tekken 8": 1, "Trackmania": 1, "Valorant": 5, "Wild Rift": 5 };
+  function teamSize(jeu) {
+    var s = slugify(jeu || ""), k = Object.keys(EQUIPE);
+    for (var i = 0; i < k.length; i++) if (slugify(k[i]) === s) return EQUIPE[k[i]];
+    return null;
+  }
+  /* Les anciennes analyses avaient 5 joueurs par défaut, même pour un jeu à 3 : on corrige tant que personne n'a saisi la valeur. */
+  function fixTeamSize(o) {
+    var n = teamSize(o.jeu);
+    if (n && num(o.joueurs) === 5 && n !== 5 && !o.joueursManuel) { o.joueurs = n; if (o.choix && !o.calManuel) autoPick(o); save(); }
+  }
   function anaDefaults(o) {
-    if (num(o.joueurs) == null) o.joueurs = 5;
+    if (num(o.joueurs) == null) o.joueurs = teamSize(o.jeu) || 5;
     if (num(o.staff) == null) o.staff = 1;
     if (num(o.mois) == null) o.mois = 10;
     if (num(o.topMoyen) == null) o.topMoyen = 8;
@@ -1212,7 +1224,7 @@ details.card.more { padding: 18px 22px; }
     if (!o) { o = newOpp(jeu); anaDefaults(o); }
     state.tab = "club"; state.oppId = o.id; state.detail = false; state.flash = null; state.confirm = null;
     state.scene = { files: [], text: "", busy: false };
-    save(); window.scrollTo(0, 0);
+    fixTeamSize(o); save(); window.scrollTo(0, 0);
     if (!anaScope(o).list.length) anaRun(o);
   }
 
@@ -1267,7 +1279,7 @@ details.card.more { padding: 18px 22px; }
 
     h += '<section class="card"><div class="card-h"><h2 class="section-title">Hypothèses</h2><span class="hint">Change une valeur : le calendrier et le verdict se recalculent.</span></div><div class="fields">' +
       '<label class="field"><span>Niveau de l\'équipe</span><select data-k="' + k("topMoyen") + '">' + TOP_CHOICES.map(function (t) { return '<option value="' + t[0] + '"' + (num(o.topMoyen) === t[0] ? " selected" : "") + ">" + esc(t[1]) + "</option>"; }).join("") + "</select></label>" +
-      '<label class="field"><span>Joueurs</span><input type="text" inputmode="decimal" data-k="' + k("joueurs") + '" value="' + esc(fmtIn(o.joueurs)) + '" placeholder="Ex. 5"></label>' +
+      '<label class="field"><span>Joueurs qui voyagent' + (teamSize(o.jeu) ? " (" + esc(o.jeu) + " : " + teamSize(o.jeu) + " titulaire" + (teamSize(o.jeu) > 1 ? "s" : "") + ")" : "") + '</span><input type="text" inputmode="decimal" data-k="' + k("joueurs") + '" value="' + esc(fmtIn(o.joueurs)) + '" placeholder="Ex. 5"></label>' +
       '<label class="field"><span>Staff qui voyage</span><input type="text" inputmode="decimal" data-k="' + k("staff") + '" value="' + esc(fmtIn(o.staff)) + '" placeholder="Ex. 1"></label>' +
       '<label class="field"><span>Salaires par mois, au total (€)</span><input type="text" inputmode="decimal" data-k="' + k("salairesMois") + '" value="' + esc(fmtIn(o.salairesMois)) + '" placeholder="Ex. 2 000"></label>' +
       '<label class="field"><span>Durée de la saison (mois)</span><input type="text" inputmode="decimal" data-k="' + k("mois") + '" value="' + esc(fmtIn(o.mois)) + '" placeholder="Ex. 10"></label></div>' +
@@ -2179,7 +2191,8 @@ details.card.more { padding: 18px 22px; }
     if (!k) return;
     setValue(k, el);
     var kp = k.split("|");
-    if (kp[0] === "opp" && /^(topMoyen|topSur|topSous|joueurs|staff|partStructure)$/.test(kp[2])) { var oh = findOpp(kp[1]); if (oh && oh.choix && !oh.calManuel && !state.detail && state.ana && state.ana.id === oh.id) { autoPick(oh); save(); } }
+    if (kp[0] === "opp" && /^(topMoyen|topSur|topSous|joueurs|staff|partStructure)$/.test(kp[2])) { var oh = findOpp(kp[1]); if (oh && kp[2] === "joueurs") { oh.joueursManuel = true; save(); }
+      if (oh && oh.choix && !oh.calManuel && !state.detail && state.ana && state.ana.id === oh.id) { autoPick(oh); save(); } }
     /* Le lien de la scène ne change rien à l'affichage : pas de redessin. */
     if (/\|sceneUrl$/.test(k)) { return; }
     clearTimeout(changeTimer);
@@ -2228,7 +2241,7 @@ details.card.more { padding: 18px 22px; }
       case "ana-detail": state.detail = true; state.oppId = id; window.scrollTo(0, 0); break;
       case "set-statut": var oss = findOpp(id); if (oss) { oss.statut = b.getAttribute("data-v"); save(); if (oss.statut !== "etude") { state.oppId = null; state.detail = false; window.scrollTo(0, 0); } } break;
       case "new-opp-game": var g = state.cat.jeux[b.getAttribute("data-slug")]; var o5 = newOpp(g ? g.nom : ""); anaDefaults(o5); save(); state.tab = "club"; state.oppId = o5.id; state.detail = true; state.picker = o5.id; state.pickJeu = b.getAttribute("data-slug"); state.pickSel = {}; window.scrollTo(0, 0); break;
-      case "open-opp": state.detail = false; state.oppId = id; state.tab = "club"; state.confirm = null; window.scrollTo(0, 0); break;
+      case "open-opp": var ofx = findOpp(id); if (ofx) fixTeamSize(ofx); state.detail = false; state.oppId = id; state.tab = "club"; state.confirm = null; window.scrollTo(0, 0); break;
       case "back-club": state.detail = false; state.oppId = null; state.tab = "club"; state.confirm = null; state.drawer = null; window.scrollTo(0, 0); break;
       case "del-opp": state.confirm = "del-opp:" + id; break;
       case "del-opp-yes": state.sim.opps = state.sim.opps.filter(function (x) { return x.id !== id; }); state.oppId = null; state.confirm = null; save(); break;
