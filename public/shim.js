@@ -72,14 +72,16 @@
     fetchSub(s).catch(function (e) { if (s.err) s.err(e); });
     return function () { subs = subs.filter(function (x) { return x !== s; }); };
   }
+  var pollAgain = false;
   function pollNow() {
-    if (polling || !subs.length) return Promise.resolve();
+    if (!subs.length) return Promise.resolve();
+    if (polling) { pollAgain = true; return Promise.resolve(); }
     polling = true;
     return api("/api/versions").then(function (r) {
       var vs = r.versions || {}, jobs = [];
       subs.slice().forEach(function (s) { if ((vs[s.coll] || 0) !== (s.v || 0)) jobs.push(fetchSub(s).catch(function () {})); });
       return Promise.all(jobs);
-    }).catch(function () {}).then(function () { polling = false; });
+    }).catch(function () {}).then(function () { polling = false; if (pollAgain) { pollAgain = false; return pollNow(); } });
   }
   setInterval(function () { if (!document.hidden) pollNow(); }, POLL_MS);
   document.addEventListener("visibilitychange", function () { if (!document.hidden) pollNow(); });
@@ -148,7 +150,7 @@
   };
 
   /* ---------- lecture d'un lien ---------- */
-  function pageReader(url) { return api("/api/page?url=" + encodeURIComponent(url)); }
+  function pageReader(url, opts) { return api("/api/page?url=" + encodeURIComponent(url) + (opts && opts.years ? "&years=" + encodeURIComponent(opts.years) : "")); }
 
   var caps = { db: db, user: user, sample: sample, pageReader: pageReader };
   window.claude = {

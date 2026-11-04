@@ -11,6 +11,8 @@ const SESSION_DAYS = 30;
 const LIQUIPEDIA_PARSE_GAP_MS = 30000; // règle Liquipedia : 1 lecture de page par 30 s
 const PAGE_CACHE_MS = 12 * 3600 * 1000;
 const MAX_PAGE_CHARS = 60000;
+const MAX_FILTERED_CHARS = 100000;
+const MAX_CACHED_CHARS = 900000;
 const IMG_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 const SCHEMA = [
@@ -170,7 +172,8 @@ async function readLiquipedia(u, env) {
   if (segs.length < 2) throw { status: 422, code: "unreadable", message: "Lien Liquipedia incomplet : ajoute le nom de la page." };
   var wiki = segs[0], title = decodeURIComponent(segs.slice(1).join("/"));
   var last = await env.DB.prepare("SELECT v FROM meta WHERE k='liqui_last_parse'").first();
-  var wait = last ? LIQUIPEDIA_PARSE_GAP_MS - (Date.now() - Number(last.v)) : 0;
+  var gap = Number(env.LIQUIPEDIA_GAP_MS) || LIQUIPEDIA_PARSE_GAP_MS; // réglable seulement pour les tests
+  var wait = last ? gap - (Date.now() - Number(last.v)) : 0;
   if (wait > 0) throw { status: 429, code: "rate_limited", message: "Liquipedia limite les lectures à une toutes les 30 secondes. Réessaie dans " + Math.ceil(wait / 1000) + " s." };
   await env.DB.prepare("INSERT INTO meta(k,v) VALUES('liqui_last_parse',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(String(Date.now())).run();
   var base = env.LIQUIPEDIA_BASE || "https://liquipedia.net";
@@ -198,19 +201,32 @@ async function readWeb(u, env) {
   return { text: text, source: "web" };
 }
 
-async function readPage(rawUrl, env) {
+/* Pages de listes (tous les tournois d'un tier, sur plusieurs années) : on ne garde que les lignes des années demandées. */
+function keepYears(text, yearsParam) {
+  var ys = String(yearsParam || "").split(",").map(function (s) { return s.trim(); }).filter(function (s) { return /^\d{4}$/.test(s); }).slice(0, 4);
+  if (!ys.length) return text.slice(0, MAX_PAGE_CHARS);
+  var re = new RegExp("\\b(" + ys.join("|") + ")\\b");
+  var out = [], n = 0;
+  var lines = text.split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    if (re.test(lines[i])) { out.push(lines[i]); n += lines[i].length + 1; if (n > MAX_FILTERED_CHARS) break; }
+  }
+  return out.join("\n");
+}
+
+async function readPage(rawUrl, env, years) {
   var u;
   try { u = new URL(String(rawUrl || "").trim()); } catch (e) { throw { status: 400, code: "bad_request", message: "Lien invalide." }; }
   if (!/^https?:$/.test(u.protocol) || u.username || u.password) throw { status: 400, code: "bad_request", message: "Lien invalide." };
   if (blockedHost(u.hostname, env)) throw { status: 400, code: "bad_request", message: "Adresse non autorisée." };
   var key = u.toString();
   var c = await env.DB.prepare("SELECT text, source, fetched_at FROM page_cache WHERE url=?").bind(key).first();
-  if (c && Date.now() - c.fetched_at < PAGE_CACHE_MS) return { text: c.text, source: c.source, cached: true };
+  if (c && Date.now() - c.fetched_at < PAGE_CACHE_MS) return { text: keepYears(c.text, years), source: c.source, cached: true };
   var host = u.hostname.toLowerCase();
   var out = (host === "liquipedia.net" || host.endsWith(".liquipedia.net") || (env.LIQUIPEDIA_TEST_HOST && host === env.LIQUIPEDIA_TEST_HOST)) ? await readLiquipedia(u, env) : await readWeb(u, env);
-  out.text = out.text.slice(0, MAX_PAGE_CHARS);
-  await env.DB.prepare("INSERT INTO page_cache(url,text,source,fetched_at) VALUES(?,?,?,?) ON CONFLICT(url) DO UPDATE SET text=excluded.text, source=excluded.source, fetched_at=excluded.fetched_at").bind(key, out.text, out.source, Date.now()).run();
-  return out;
+  var full = out.text.slice(0, MAX_CACHED_CHARS);
+  await env.DB.prepare("INSERT INTO page_cache(url,text,source,fetched_at) VALUES(?,?,?,?) ON CONFLICT(url) DO UPDATE SET text=excluded.text, source=excluded.source, fetched_at=excluded.fetched_at").bind(key, full, out.source, Date.now()).run();
+  return { text: keepYears(full, years), source: out.source };
 }
 
 /* ---------- lecture par Gemini ---------- */
@@ -345,7 +361,7 @@ async function handleApi(request, env, url) {
   }
 
   if (path === "/api/page" && method === "GET") {
-    try { return json(await readPage(url.searchParams.get("url"), env)); }
+    try { return json(await readPage(url.searchParams.get("url"), env, url.searchParams.get("years"))); }
     catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
   }
 
