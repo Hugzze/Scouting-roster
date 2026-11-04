@@ -14,7 +14,7 @@ Le même outil que dans Claude, mais hébergé sur un vrai site : chaque directe
 
 ## Mise en ligne depuis un téléphone (sans ordinateur, ≈ 10 minutes)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=URL_DU_DEPOT)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Hugzze/Scouting-roster)
 
 1. Crée une clé Gemini gratuite : https://aistudio.google.com/apikey (bouton **Create API key**), et garde-la sous la main.
 2. Touche le bouton ci-dessus. Connecte-toi (ou crée un compte gratuit) à Cloudflare et à GitHub quand on te le demande.
