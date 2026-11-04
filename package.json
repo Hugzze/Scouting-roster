@@ -1,0 +1,25 @@
+{
+  "name": "scouting-roster",
+  "version": "1.0.0",
+  "description": "Scouting Roster : simulateur de saison pour directeurs sportifs esport",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.157.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SESSION_SECRET": {
+        "description": "Une longue phrase au hasard (30 caractères ou plus). Elle sert à sécuriser les connexions. Tu n'auras plus jamais besoin de la retaper."
+      },
+      "GEMINI_API_KEY": {
+        "description": "La clé gratuite créée sur https://aistudio.google.com/apikey (bouton « Create API key »)."
+      },
+      "CONTACT": {
+        "description": "Une adresse e-mail de contact (celle du club). Liquipedia l'exige pour autoriser la lecture de ses pages."
+      }
+    }
+  },
+  "private": true
+}

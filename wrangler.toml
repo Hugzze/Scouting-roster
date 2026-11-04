@@ -1,0 +1,19 @@
+name = "scouting-roster"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+html_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "scouting-roster"
+
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"
+# Lectures IA par jour : au total, et par compte (protège la limite gratuite de Gemini).
+DAILY_READS = "200"
+DAILY_READS_PER_USER = "20"

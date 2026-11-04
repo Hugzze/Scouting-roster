@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scouting Roster Majin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root { color-scheme: dark; --bg: #0D0D0C; --panel: #151413; --line: rgba(243,230,204,.12); --fg: #F3E6CC; --muted: #A7A092; --gold: #D2B759; --bad: #F27768; }
+* { box-sizing: border-box; }
+html, body { min-height: 100%; margin: 0; }
+body { min-height: 100vh; background: radial-gradient(900px 480px at 15% -10%, rgba(210,183,89,.12), transparent 62%), var(--bg); color: var(--fg); font: 15px/1.5 "Archivo", system-ui, sans-serif; display: grid; place-items: center; padding: 20px; }
+main { width: min(460px, 100%); display: grid; gap: 22px; }
+.kicker { font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0; display: flex; align-items: center; gap: 12px; }
+.kicker::before { content: ""; width: 34px; height: 1px; background: var(--gold); }
+h1 { margin: 0; font-family: "Archivo", sans-serif; font-stretch: 125%; font-weight: 900; font-size: clamp(38px, 11vw, 62px); line-height: .92; letter-spacing: -.01em; text-transform: uppercase; text-wrap: balance; }
+h1 span { display: block; color: #CDBE9F; }
+.card { background: linear-gradient(180deg, rgba(255,255,255,.025), transparent), var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; display: grid; gap: 16px; }
+.switch { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: rgba(28,27,25,.7); }
+.switch button { background: transparent; color: var(--muted); border: 0; border-radius: 999px; padding: 9px 10px; font: 600 12px "Archivo", sans-serif; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.switch button[aria-selected="true"] { color: var(--fg); background: rgba(210,183,89,.2); box-shadow: inset 0 0 0 1px rgba(210,183,89,.28); }
+form { display: grid; gap: 14px; }
+label { display: grid; gap: 6px; font: 500 10.5px "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+input { font: 400 15px "Archivo", sans-serif; letter-spacing: 0; text-transform: none; color: var(--fg); background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; }
+input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(210,183,89,.16); }
+button.go { font: 700 12px "Archivo", sans-serif; letter-spacing: .1em; text-transform: uppercase; background: var(--fg); color: #17130A; border: 0; border-radius: 999px; padding: 13px 18px; cursor: pointer; }
+button.go:hover { background: #fff6e2; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+button:disabled { opacity: .55; cursor: default; }
+.err { color: var(--bad); min-height: 1.4em; font-size: 14px; }
+.note { margin: 0; color: var(--muted); font-size: 13px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <p class="kicker">Majin Club · Direction esport</p>
+    <h1>Scouting<span>Roster.</span></h1>
+  </div>
+  <div class="card">
+    <div class="switch" role="tablist">
+      <button type="button" role="tab" id="t-in" aria-selected="true">Connexion</button>
+      <button type="button" role="tab" id="t-up" aria-selected="false">Créer un compte</button>
+    </div>
+    <form id="f" autocomplete="on">
+      <label id="l-name" hidden>Prénom ou nom du compte<input id="name" name="name" type="text" autocomplete="given-name" maxlength="40"></label>
+      <label>Adresse e-mail<input id="email" name="email" type="email" autocomplete="email" maxlength="120" required></label>
+      <label>Mot de passe<input id="pw" name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+      <label id="l-code" hidden>Code d'invitation<input id="code" name="code" type="text" autocomplete="off" maxlength="60"></label>
+      <button id="go" class="go" type="submit">Se connecter</button>
+      <div id="err" class="err" role="alert"></div>
+    </form>
+    <p class="note" id="note-up" hidden>Tes simulations et ton catalogue sont privés : personne d'autre ne les voit. Pour partager avec les directeurs, créez un compte commun et connectez-vous-y ensemble.</p>
+  </div>
+</main>
+<script>
+(function () {
+  var up = false;
+  var $ = function (id) { return document.getElementById(id); };
+  try { var e0 = localStorage.getItem("sr-email"); if (e0) $("email").value = e0; } catch (e) {}
+  function mode(isUp) {
+    up = isUp;
+    $("t-in").setAttribute("aria-selected", String(!isUp)); $("t-up").setAttribute("aria-selected", String(isUp));
+    $("l-name").hidden = !isUp; $("name").required = isUp; $("note-up").hidden = !isUp;
+    $("pw").autocomplete = isUp ? "new-password" : "current-password";
+    $("go").textContent = isUp ? "Créer mon compte" : "Se connecter"; $("err").textContent = "";
+  }
+  $("t-in").addEventListener("click", function () { mode(false); });
+  $("t-up").addEventListener("click", function () { mode(true); });
+  if (location.hash === "#inscription") mode(true);
+  $("f").addEventListener("submit", function (ev) {
+    ev.preventDefault(); $("err").textContent = ""; $("go").disabled = true;
+    var email = $("email").value.trim();
+    var body = { email: email, password: $("pw").value };
+    if (up) { body.name = $("name").value.trim(); if (!$("l-code").hidden) body.code = $("code").value; }
+    fetch(up ? "/api/signup" : "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, s: r.status, j: j }; }); })
+      .then(function (r) {
+        if (r.ok) { try { localStorage.setItem("sr-email", email); } catch (e) {} location.reload(); return; }
+        if (r.s === 403 && up) $("l-code").hidden = false;
+        $("err").textContent = (r.j && r.j.message) || "Connexion impossible.";
+        $("go").disabled = false;
+      })
+      .catch(function () { $("err").textContent = "Le serveur ne répond pas. Réessaie."; $("go").disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>
