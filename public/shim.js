@@ -141,7 +141,7 @@
       opts = opts || {};
       var files = opts.images ? (Array.isArray(opts.images) ? opts.images : (opts.images.length != null && !opts.images.type ? Array.prototype.slice.call(opts.images) : [opts.images])) : [];
       return Promise.all(files.map(function (f) { return shrink(f).then(function (b) { return blobToB64(b).then(function (d) { return { mime: b.type || f.type, data: d }; }); }); }))
-        .then(function (images) { return api("/api/ai", { method: "POST", body: JSON.stringify({ prompt: String(input), images: images }) }); })
+        .then(function (images) { return api("/api/ai", { method: "POST", body: JSON.stringify({ prompt: String(input), images: images, search: !!opts.search }) }); })
         .then(function (r) {
           try { return tolerantJson(r.text); }
           catch (e) { throw { code: "invalid_json", message: "Réponse illisible.", text: r.text }; }

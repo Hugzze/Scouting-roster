@@ -230,19 +230,22 @@ async function readPage(rawUrl, env, years) {
 }
 
 /* ---------- lecture par Gemini ---------- */
-async function askGemini(env, prompt, images) {
+async function askGemini(env, prompt, images, opts) {
+  opts = opts || {};
   if (!env.GEMINI_API_KEY) throw { status: 503, code: "not_configured", message: "La clé Gemini n'est pas configurée sur le serveur." };
   var models = String(env.GEMINI_MODEL || "gemini-3.5-flash,gemini-3.8-flash,gemini-3.5-flash-lite").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
   var base = env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
   var parts = [{ text: prompt }];
   (images || []).forEach(function (im) { parts.push({ inlineData: { mimeType: im.mime, data: im.data } }); });
   var body = { contents: [{ role: "user", parts: parts }], generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 16384 } };
+  // Recherche web (annonces officielles) : Gemini ne sait pas répondre en JSON strict avec la recherche, le navigateur lit le JSON dans le texte.
+  if (opts.search) { body.tools = [{ google_search: {} }]; delete body.generationConfig.responseMimeType; }
   var res = null;
   // Google retire des modèles de temps en temps : si l'un répond 404 (retiré) ou 5xx (surchargé), on essaie le suivant.
   for (var mi = 0; mi < models.length; mi++) {
     try {
       res = await fetch(base + "/v1beta/models/" + encodeURIComponent(models[mi]) + ":generateContent", {
-        method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(models.length > 1 ? 50000 : 110000)
+        method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 100000 : (models.length > 1 ? 50000 : 110000))
       });
     } catch (e) { res = null; if (mi === models.length - 1) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas. Réessaie dans un instant." }; continue; }
     if (res.status === 404 || res.status >= 500) { if (mi < models.length - 1) continue; }
@@ -379,7 +382,7 @@ async function handleApi(request, env, url) {
     if ((await countUse(env, "ai:" + me.uid)) >= capUser) return fail(429, "rate_limited", "Tu as atteint ta limite de " + capUser + " lectures par jour. Réessaie demain.");
     if ((await countUse(env, "ai")) >= cap) return fail(429, "rate_limited", "Limite quotidienne de lectures atteinte pour tous les comptes (" + cap + "). Réessaie demain.");
     try {
-      var r = await askGemini(env, prompt, imgs);
+      var r = await askGemini(env, prompt, imgs, { search: b2.search === true });
       await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
       return json(r);
     } catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
