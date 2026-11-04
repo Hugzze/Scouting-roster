@@ -216,20 +216,28 @@ async function readPage(rawUrl, env) {
 /* ---------- lecture par Gemini ---------- */
 async function askGemini(env, prompt, images) {
   if (!env.GEMINI_API_KEY) throw { status: 503, code: "not_configured", message: "La clé Gemini n'est pas configurée sur le serveur." };
-  var model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  var models = String(env.GEMINI_MODEL || "gemini-3.5-flash,gemini-3.8-flash,gemini-3.5-flash-lite").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
   var base = env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
   var parts = [{ text: prompt }];
   (images || []).forEach(function (im) { parts.push({ inlineData: { mimeType: im.mime, data: im.data } }); });
   var body = { contents: [{ role: "user", parts: parts }], generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 16384 } };
-  var res = await fetch(base + "/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
-    method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(110000)
-  });
+  var res = null;
+  // Google retire des modèles de temps en temps : si l'un répond 404 (retiré) ou 5xx (surchargé), on essaie le suivant.
+  for (var mi = 0; mi < models.length; mi++) {
+    try {
+      res = await fetch(base + "/v1beta/models/" + encodeURIComponent(models[mi]) + ":generateContent", {
+        method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(models.length > 1 ? 50000 : 110000)
+      });
+    } catch (e) { res = null; if (mi === models.length - 1) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas. Réessaie dans un instant." }; continue; }
+    if (res.status === 404 || res.status >= 500) { if (mi < models.length - 1) continue; }
+    break;
+  }
   if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite gratuite de Gemini est atteinte. Réessaie dans quelques minutes." };
   if (res.status === 400 || res.status === 401 || res.status === 403) {
     var t = ""; try { t = (await res.text()).slice(0, 300); } catch (e) {}
     throw { status: 502, code: "upstream_error", message: "Gemini a refusé la demande (" + res.status + "). Vérifie la clé et le modèle. " + t };
   }
-  if (!res.ok) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas (" + res.status + ")." };
+  if (!res.ok) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas (" + res.status + ")." + (res.status === 404 ? " Le modèle est peut-être retiré : change GEMINI_MODEL." : "") };
   var data = await res.json();
   var cand = data && data.candidates && data.candidates[0];
   if (!cand || !cand.content) throw { status: 422, code: "refused", message: "Gemini n'a pas voulu lire ce contenu." };
