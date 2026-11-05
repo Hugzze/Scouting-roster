@@ -280,7 +280,7 @@ async function askClaude(env, prompt, images, opts) {
   var content = [];
   (images || []).forEach(function (im) { content.push({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } }); });
   content.push({ type: "text", text: prompt });
-  var body = { model: model, max_tokens: 16000, temperature: 0, system: "Tu réponds uniquement par l'objet JSON demandé, sans texte avant ni après, sans bloc de code.", messages: [{ role: "user", content: content }] };
+  var body = { model: model, max_tokens: 16000, system: "Tu réponds uniquement par l'objet JSON demandé, sans texte avant ni après, sans bloc de code.", messages: [{ role: "user", content: content }] };
   if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
   var key = String(env.ANTHROPIC_API_KEY || "").replace(/\s+/g, "");
   if (!/^[A-Za-z0-9_\-]{20,}$/.test(key))
