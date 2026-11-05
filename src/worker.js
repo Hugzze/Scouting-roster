@@ -272,6 +272,33 @@ async function askGemini(env, prompt, images, opts) {
   return { text: text, truncated: cand.finishReason === "MAX_TOKENS" };
 }
 
+/* ---------- lecture par Claude (si une clé Anthropic est configurée : plus rapide et plus stable) ---------- */
+async function askClaude(env, prompt, images, opts) {
+  opts = opts || {};
+  var base = env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+  var model = opts.search ? (env.ANTHROPIC_MODEL_SEARCH || "claude-sonnet-5-5") : (env.ANTHROPIC_MODEL || "claude-haiku-5-5");
+  var content = [];
+  (images || []).forEach(function (im) { content.push({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } }); });
+  content.push({ type: "text", text: prompt });
+  var body = { model: model, max_tokens: 16000, temperature: 0, system: "Tu réponds uniquement par l'objet JSON demandé, sans texte avant ni après, sans bloc de code.", messages: [{ role: "user", content: content }] };
+  if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+  var res;
+  try {
+    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
+  } catch (e) { throw { status: 502, code: "upstream_error", message: "Claude ne répond pas. Réessaie dans un instant." }; }
+  if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite de l'API Claude est atteinte. Réessaie dans quelques instants." };
+  if (res.status === 529 || res.status >= 500) throw { status: 503, code: "overloaded", message: "Claude est très sollicité en ce moment." };
+  if (!res.ok) {
+    var t = ""; try { t = (await res.text()).slice(0, 300); } catch (e) {}
+    throw { status: 502, code: "upstream_error", message: "Claude a refusé la demande (" + res.status + "). Vérifie la clé et le crédit du compte Anthropic. " + t };
+  }
+  var data = await res.json();
+  var text = (data.content || []).filter(function (b) { return b.type === "text"; }).map(function (b) { return b.text || ""; }).join("");
+  if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Claude n'a rien renvoyé." };
+  return { text: text, truncated: data.stop_reason === "max_tokens" };
+}
+function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? askClaude(env, prompt, images, opts) : askGemini(env, prompt, images, opts); }
+
 /* ---------- quotas ---------- */
 async function countUse(env, who) {
   var r = await env.DB.prepare("SELECT n FROM usage WHERE day=? AND who=?").bind(today(), who).first();
@@ -389,7 +416,7 @@ async function handleApi(request, env, url) {
     if ((await countUse(env, "ai:" + me.uid)) >= capUser) return fail(429, "rate_limited", "Tu as atteint ta limite de " + capUser + " lectures par jour. Réessaie demain.");
     if ((await countUse(env, "ai")) >= cap) return fail(429, "rate_limited", "Limite quotidienne de lectures atteinte pour tous les comptes (" + cap + "). Réessaie demain.");
     try {
-      var r = await askGemini(env, prompt, imgs, { search: b2.search === true });
+      var r = await askModel(env, prompt, imgs, { search: b2.search === true });
       await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
       return json(r);
     } catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }

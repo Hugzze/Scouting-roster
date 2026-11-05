@@ -1209,7 +1209,7 @@ details.card.more { padding: 18px 22px; }
     var prompt = "Tu es analyste esport. Date du jour : " + w.today + ". Jeu : " + o.jeu + ".\n" +
       "Fais une recherche web pour trouver ce que l'ÉDITEUR du jeu et ses organisateurs officiels annoncent pour la saison esport entre " + w.from + " et " + w.to + " : calendrier, dates, cashprize (prize pool), lieux, LAN et finales, formats, et comment une équipe peut s'y qualifier.\n" +
       (o.niveauComp === "challenger" ? "La structure vise le niveau CHALLENGER (T2) : circuits challenger, académies, ligues secondaires et qualifications ouvertes. Ignore les ligues réservées aux équipes pro franchisées.\n" : "La structure vise le niveau PRO (T1) : le circuit professionnel officiel de ce jeu.\n") +
-      "Appuie-toi d'abord sur les sites officiels de l'éditeur et des organisateurs officiels. Voici ce que Liquipedia donne déjà (à confirmer, corriger ou compléter) : " + JSON.stringify(base.slice(0, 60).map(function (e) { return { nom: e.nom, debut: e.debut, fin: e.fin, lieu: e.lieu, cashprize: e.cashprize, devise: e.devise }; })) + "\n" +
+      "Appuie-toi d'abord sur les sites officiels de l'éditeur et des organisateurs officiels." + (base.length ? " Voici ce que Liquipedia donne déjà (à confirmer, corriger ou compléter) : " + JSON.stringify(base.slice(0, 60).map(function (e) { return { nom: e.nom, debut: e.debut, fin: e.fin, lieu: e.lieu, cashprize: e.cashprize, devise: e.devise }; })) : "") + "\n" +
       "Règles : ne renvoie que ce qu'une page officielle confirme, et donne l'adresse de cette page dans « source ». N'invente rien. Mets null quand ce n'est pas annoncé. Dates au format AAAA-MM-JJ.\n" +
       "Réponds uniquement par un objet JSON de cette forme (chaque événement avec en plus \"source\": adresse de la page officielle) : " + SCENE_FIELDS;
     return state.sample.json(prompt, { modelTier: "default", cache: false, search: true });
@@ -1235,6 +1235,8 @@ details.card.more { padding: 18px 22px; }
     if (!state.reader || !state.sample) { anaFail(o, "La lecture automatique n'est pas disponible pour l'instant. Recharge la page, ou ajoute un lien, du texte ou une photo plus bas."); return; }
     if (!wiki) { anaFail(o, "Je n'ai pas encore de source automatique pour « " + o.jeu + " ». Ajoute le lien de la scène, du texte ou une photo plus bas."); return; }
     render();
+    /* La recherche officielle démarre tout de suite, pendant que les pages Liquipedia se lisent (elles attendent 30 s entre deux pages). */
+    var researchP = anaResearch(o, w, []).then(function (off) { return { off: off }; }, function () { return { off: null }; });
     var texts = [], i = 0, tiers = TIERS[o.niveauComp] || TIERS.pro;
     function nextPage() {
       if (i >= tiers.length) return Promise.resolve();
@@ -1256,8 +1258,8 @@ details.card.more { padding: 18px 22px; }
       return anaAsk(prompt, { modelTier: "default", cache: false }, ana, 0);
     }).then(function (res) {
       var list = res && Array.isArray(res.evenements) ? res.evenements.map(normSceneEvent).filter(Boolean) : [];
-      ana.msg = "Je cherche les annonces officielles de l'éditeur…"; ana.pct = 90; anaDraw();
-      return anaResearch(o, w, list).then(function (off) { return mergeOfficial(res, off); }).catch(function () { o.officielKo = true; return res; });
+      ana.msg = "J'attends les annonces officielles de l'éditeur…"; ana.pct = 90; anaDraw();
+      return researchP.then(function (r) { if (!r.off) { o.officielKo = true; return res; } return mergeOfficial(res, r.off); });
     }).then(function (res) {
       return ingestScene(o, res, "https://liquipedia.net/" + wiki + "/").then(function (r) { o.officielN = res && res.officiel ? res.officiel.fixed + res.officiel.added : 0; return r; });
     }).then(function () {
