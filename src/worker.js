@@ -282,9 +282,12 @@ async function askClaude(env, prompt, images, opts) {
   content.push({ type: "text", text: prompt });
   var body = { model: model, max_tokens: 16000, temperature: 0, system: "Tu réponds uniquement par l'objet JSON demandé, sans texte avant ni après, sans bloc de code.", messages: [{ role: "user", content: content }] };
   if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+  var key = String(env.ANTHROPIC_API_KEY || "").replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9_\-]{20,}$/.test(key))
+    throw { status: 502, code: "upstream_error", message: "La clé Anthropic enregistrée dans Cloudflare contient des caractères invalides (" + key.length + " caractères). Recopie-la en entier depuis la console Anthropic, sans guillemets ni points de suspension, ou crée-en une nouvelle." };
   var res;
   try {
-    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": String(env.ANTHROPIC_API_KEY).trim(), "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
+    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
   } catch (e) {
     var why = e && e.name === "TimeoutError" ? "délai dépassé" : String((e && e.message) || e).slice(0, 120);
     throw { status: 502, code: "upstream_error", message: "Claude ne répond pas (" + why + "). Réessaie dans un instant." };
