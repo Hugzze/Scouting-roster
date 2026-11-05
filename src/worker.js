@@ -243,14 +243,21 @@ async function askGemini(env, prompt, images, opts) {
   var res = null;
   // Google retire des modèles de temps en temps : si l'un répond 404 (retiré) ou 5xx (surchargé), on essaie le suivant.
   for (var mi = 0; mi < models.length; mi++) {
-    try {
-      res = await fetch(base + "/v1beta/models/" + encodeURIComponent(models[mi]) + ":generateContent", {
-        method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 100000 : (models.length > 1 ? 50000 : 110000))
-      });
-    } catch (e) { res = null; if (mi === models.length - 1) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas. Réessaie dans un instant." }; continue; }
-    if (res.status === 404 || res.status >= 500) { if (mi < models.length - 1) continue; }
-    break;
+    // Un modèle surchargé (503) répond souvent bien à la deuxième tentative.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        res = await fetch(base + "/v1beta/models/" + encodeURIComponent(models[mi]) + ":generateContent", {
+          method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 100000 : (models.length > 1 ? 50000 : 110000))
+        });
+      } catch (e) { res = null; break; }
+      if (res.status !== 503 && res.status !== 500 && res.status !== 504) break;
+      if (attempt === 0) await new Promise(function (ok) { setTimeout(ok, Number(env.GEMINI_RETRY_MS) || 2500); });
+    }
+    if (res && res.status !== 404 && res.status < 500) break;
+    if (mi === models.length - 1) break;
   }
+  if (!res) throw { status: 502, code: "upstream_error", message: "Gemini ne répond pas. Réessaie dans un instant." };
+  if (res.status === 503 || res.status === 500 || res.status === 504) throw { status: 503, code: "overloaded", message: "Gemini est très sollicité en ce moment." };
   if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite gratuite de Gemini est atteinte. Réessaie dans quelques minutes." };
   if (res.status === 400 || res.status === 401 || res.status === 403) {
     var t = ""; try { t = (await res.text()).slice(0, 300); } catch (e) {}
