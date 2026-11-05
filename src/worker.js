@@ -284,8 +284,11 @@ async function askClaude(env, prompt, images, opts) {
   if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
   var res;
   try {
-    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
-  } catch (e) { throw { status: 502, code: "upstream_error", message: "Claude ne répond pas. Réessaie dans un instant." }; }
+    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": String(env.ANTHROPIC_API_KEY).trim(), "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
+  } catch (e) {
+    var why = e && e.name === "TimeoutError" ? "délai dépassé" : String((e && e.message) || e).slice(0, 120);
+    throw { status: 502, code: "upstream_error", message: "Claude ne répond pas (" + why + "). Réessaie dans un instant." };
+  }
   if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite de l'API Claude est atteinte. Réessaie dans quelques instants." };
   if (res.status === 529 || res.status >= 500) throw { status: 503, code: "overloaded", message: "Claude est très sollicité en ce moment." };
   if (!res.ok) {
