@@ -1218,7 +1218,7 @@ details.card.more { padding: 18px 22px; }
   function anaAsk(prompt, opts, ana, tries) {
     return state.sample.json(prompt, opts).catch(function (e) {
       if (e && e.code === "overloaded" && tries < 3) {
-        return anaCountdown(ana, 12, "Gemini est très sollicité en ce moment.").then(function () { return anaAsk(prompt, opts, ana, tries + 1); });
+        return anaCountdown(ana, 12, "L'IA est très sollicitée en ce moment.").then(function () { return anaAsk(prompt, opts, ana, tries + 1); });
       }
       throw e;
     });
@@ -2163,10 +2163,10 @@ details.card.more { padding: 18px 22px; }
     return c === "not_granted" ? "Tu n'as pas autorisé Claude à lire pour cet outil. Relance et accepte la demande." :
       c === "rate_limited" ? ((e && e.message) || "Trop de lectures ou limite d'usage atteinte. Réessaie plus tard.") :
       c === "image_rejected" ? "Une capture est refusée (type ou taille). Utilise des PNG ou JPG de moins de 20 Mo." :
-      c === "invalid_json" ? "La page n'a pas pu être structurée. Réessaie avec une capture plus nette ou moins de texte." :
+      c === "invalid_json" ? "La réponse de l'IA n'a pas pu être lue. Réessaie. Début de la réponse : « " + String((e && e.text) || "").replace(/\s+/g, " ").slice(0, 160) + " » (" + String((e && e.text) || "").length + " caractères)" :
       c === "session_expired" ? "Ta connexion a expiré : la page va se recharger, reconnecte-toi." :
       c === "unreadable" ? ((e && e.message) || "La page n'a pas pu être lue.") :
-      c === "overloaded" ? "Gemini est très sollicité en ce moment. Réessaie dans une ou deux minutes." :
+      c === "overloaded" ? "Le service d'IA est très sollicité en ce moment. Réessaie dans une ou deux minutes." :
       c === "not_configured" || c === "upstream_error" ? ((e && e.message) || "Le service de lecture ne répond pas.") :
       (e && e.code ? "La lecture a échoué (" + e.code + ")." : "La lecture a échoué, ou l'écriture dans le catalogue a été refusée. Réessaie.");
   }
