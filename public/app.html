@@ -404,6 +404,7 @@ footer { font-size: 12px; font-family: var(--f-mono); letter-spacing: 0.03em; bo
 .wiz-item strong { display: block; font-size: 16px; }
 .wiz-item small { color: var(--muted); font-size: 13px; }
 .wiz-all { font-weight: 600; }
+ul.plain { margin: 6px 0 10px 18px; padding: 0; } ul.plain li { margin: 4px 0; line-height: 1.45; } ul.plain a { color: var(--gold, #d4af37); }
 .scene-box.plain { border: 0; padding: 0; margin: 0; }
 .wiz .verdict { padding: 26px; }
 
@@ -1210,7 +1211,7 @@ details.card.more { padding: 18px 22px; }
     var prompt = "Tu es analyste esport. Date du jour : " + w.today + ". Jeu : " + o.jeu + ".\n" +
       "Fais une recherche web pour trouver ce que l'ÉDITEUR du jeu et ses organisateurs officiels annoncent pour la saison esport entre " + w.from + " et " + w.to + " : calendrier, dates, cashprize (prize pool), lieux, LAN et finales, formats, et comment une équipe peut s'y qualifier.\n" +
       (o.niveauComp === "challenger" ? "La structure vise le niveau CHALLENGER (T2) : circuits challenger, académies, ligues secondaires et qualifications ouvertes. Ignore les ligues réservées aux équipes pro franchisées.\n" : "La structure vise le niveau PRO (T1) : le circuit professionnel officiel de ce jeu.\n") +
-      "Appuie-toi d'abord sur les sites officiels de l'éditeur et des organisateurs officiels." + (base.length ? " Voici ce que Liquipedia donne déjà (à confirmer, corriger ou compléter) : " + JSON.stringify(base.slice(0, 60).map(function (e) { return { nom: e.nom, debut: e.debut, fin: e.fin, lieu: e.lieu, cashprize: e.cashprize, devise: e.devise }; })) : "") + "\n" +
+      "Appuie-toi d'abord sur les sites officiels de l'éditeur et des organisateurs officiels." + (ficheOf(o.jeu) ? " Pages à consulter en priorité : " + ficheOf(o.jeu).liens.map(function (l) { return l[1]; }).join(" , ") + "." : "") + (base.length ? " Voici ce que Liquipedia donne déjà (à confirmer, corriger ou compléter) : " + JSON.stringify(base.slice(0, 60).map(function (e) { return { nom: e.nom, debut: e.debut, fin: e.fin, lieu: e.lieu, cashprize: e.cashprize, devise: e.devise }; })) : "") + "\n" +
       "Pour un tournoi EN LIGNE, renseigne « region » (Europe, Mondial ou la région concernée) ; la structure joue en EUW. Règles : ne renvoie que ce qu'une page officielle confirme, et donne l'adresse de cette page dans « source ». N'invente rien. Mets null quand ce n'est pas annoncé. Dates au format AAAA-MM-JJ.\n" +
       "Réponds uniquement par un objet JSON de cette forme (chaque événement avec en plus \"source\": adresse de la page officielle) : " + SCENE_FIELDS;
     return state.sample.json(prompt, { modelTier: "default", cache: false, search: true });
@@ -1297,11 +1298,12 @@ details.card.more { padding: 18px 22px; }
         '<p class="hint">Liquipedia impose une pause entre deux pages : ça peut prendre une à deux minutes la première fois. Ensuite c\'est instantané pour tout le monde pendant 12 heures. Tu peux rester sur cette page.</p></section>';
     }
     var sc = anaScope(o);
+    var fiche = ficheHtml(o);
     var backup = '<details class="more" data-det="ana-src"' + (!sc.list.length || (state.flash && state.flash.z === "scene:" + o.id) || sc.busy ? " open" : "") + "><summary>" + (sc.list.length ? "Ce n'est pas le bon calendrier ? Ajouter un lien, du texte ou une photo" : "Ajouter une source à la main") + "</summary>" + sceneBoxHtml(o, true) + "</details>";
     if (!sc.list.length) {
       return h + '<section class="card"><div class="sub-title">Aucun événement pour l\'instant</div>' +
         (ana && ana.phase === "error" ? '<p class="flash err">' + esc(ana.msg) + "</p>" : '<p class="hint">Je n\'ai pas encore les événements de ce jeu.</p>') +
-        '<div class="row-actions"><button class="btn" type="button" data-act="ana-run" data-id="' + esc(o.id) + '">Lancer l\'analyse automatique</button></div></section><section class="card">' + backup + "</section>" +
+        '<div class="row-actions"><button class="btn" type="button" data-act="ana-run" data-id="' + esc(o.id) + '">Lancer l\'analyse automatique</button></div></section>' + (fiche ? '<section class="card">' + fiche + "</section>" : "") + '<section class="card">' + backup + "</section>" +
         '<div class="row-actions"><button class="danger" type="button" data-act="del-opp-yes" data-id="' + esc(o.id) + '">Supprimer cette analyse</button></div>';
     }
     var oc = x.oc, vd = x.vd, fi = x.fi;
@@ -1371,6 +1373,7 @@ details.card.more { padding: 18px 22px; }
       '<button class="ghost" type="button" data-act="ana-run" data-id="' + esc(o.id) + '">Relire les tournois</button>' +
       (state.confirm === "del-opp:" + o.id ? '<span class="confirm">Supprimer ? <button class="danger" type="button" data-act="del-opp-yes" data-id="' + esc(o.id) + '">Oui</button><button class="ghost" type="button" data-act="confirm-no">Non</button></span>' : '<button class="danger" type="button" data-act="del-opp" data-id="' + esc(o.id) + '">Supprimer</button>') +
       "</div>" + (ana && ana.phase === "error" ? '<p class="flash err">' + esc(ana.msg) + "</p>" : "") + "</section>";
+    if (fiche) h += '<section class="card">' + fiche + "</section>";
     h += '<section class="card">' + backup + "</section>";
     return h;
   }
@@ -2100,6 +2103,71 @@ details.card.more { padding: 18px 22px; }
     return h;
   }
   var SCENE_FIELDS = '{"remarque": string|null, "evenements": [{"nom": string, "debut": "AAAA-MM-JJ"|null, "fin": "AAAA-MM-JJ"|null, "lieu": "Ville, pays"|null, "zone": "En ligne"|"France"|"Europe"|"Amérique du Nord"|"Asie"|"Moyen-Orient"|"Autre", "lan": true|false, "region": "Europe"|"Mondial"|"Amérique du Nord"|"Amérique du Sud"|"Asie"|"Océanie"|"Moyen-Orient"|"Autre"|null, "cashprize": nombre|null, "devise": "EUR"|"USD"|"GBP", "qualification": string|null, "paliers": [{"de": nombre, "a": nombre, "montant": nombre}]|null}]}';
+  /* Fiches de référence par jeu : sources officielles et parcours (relevés le 6 novembre 2026, à revérifier à chaque saison). */
+  var FICHES_MAJ = "6 novembre 2026";
+  var FICHES = {
+    "apex-legends": { editeur: "EA / Respawn", parcours: [
+      "Challenger Circuit : là où la plupart des équipes commencent. Les meilleures se qualifient pour la Pro League.",
+      "Pro League : ligue des équipes qualifiées, avec un Pro League Qualifier / Last Chance Qualifier ouvert aux meilleures équipes du Challenger Circuit.",
+      "ALGS Championship : l'événement final de la saison. EA annonce une dotation de 5 M$ (page officielle ; ce chiffre peut évoluer)."],
+      note: "La page officielle ne détaille pas l'entrée des équipes EMEA : regarde la page EMEA du Challenger Circuit sur Liquipedia.",
+      liens: [["Page officielle ALGS (EA)", "https://ea.com/games/apex-legends/compete/overview"], ["ALGS 2026-27 sur Liquipedia", "https://liquipedia.net/apexlegends/ALGS/2026-27"], ["Challenger Circuit 1 EMEA", "https://liquipedia.net/apexlegends/Apex_Legends_Global_Series/2026/Split_1/Challenger_Circuit_1/EMEA"]] },
+    "valorant": { editeur: "Riot Games", parcours: [
+      "VCT EMEA (niveau 1) : ligue des équipes partenaires de Riot.",
+      "Challengers EMEA (niveau 2) : des ligues régionales (France, DACH, Espagne, Turquie, NORTH//EAST, MENA…) alimentent trois tournois Challengers EMEA ; les meilleurs vont aux Play-Ins du VCT.",
+      "Premier : le mode compétitif du jeu, porte d'entrée vers les ligues régionales, avec deux fenêtres de promotion par an.",
+      "Game Changers EMEA : circuit séparé avec Kickoff, trois stages et des Cash Cups mensuels."],
+      note: "Source : feuille de route Challengers EMEA 2026 relayée par Sheep Esports ; les dotations ne sont pas détaillées.",
+      liens: [["Règles et opérations compétitives (Riot)", "https://competitiveops.riotgames.com/VALORANT"], ["Esport officiel Valorant", "https://valorantesports.com/"], ["Feuille de route Challengers EMEA 2026", "https://www.sheepesports.com/us/articles/valorant-riot-unveils-the-2026-challengers-emea-roadmap/en"], ["Tournois Valorant par niveau (Liquipedia)", "https://liquipedia.net/valorant/Portal:Tournaments"]] },
+    "rainbow-six-siege": { editeur: "Ubisoft", parcours: [
+      "Challenger Series 2026 : la voie ouverte vers les ligues régionales. Phase 1 : qualifications ouvertes à toutes les équipes inscrites, en élimination directe.",
+      "Phase 2 : tournoi à 16 équipes (dont des équipes qualifiées d'office selon 2025), les 8 premières avancent. Phase 3 : finales ; les deux finalistes gagnent une place dans la ligue régionale 2026.",
+      "Pour l'Europe : Europe MENA League (EML). Dates 2026 : Opens du 21 février au 1er mars, Swiss 3-8 mars, finales 12-15 mars."],
+      note: "L'annonce officielle ne donne pas les dotations. Une page tierce évoque 75 000 € pour l'EML Challenger 2026 : à confirmer.",
+      liens: [["Annonce Challenger Series 2026 (Ubisoft)", "https://www.ubisoft.com/en-gb/esports/rainbow-six/siege/news-updates/2qbD0Cm5dSvxBfBxrIbW3i/challenger-series-2026--your-chance-to-compete-in-your-regional-league"], ["Esport Rainbow Six (Ubisoft)", "https://www.ubisoft.com/fr-fr/esports/rainbow-six/siege/news-updates/5iSX1AJcytoUC7pL8GgHzp/r6se-blast-r6-season-2026"], ["Tournois R6 par niveau (Liquipedia)", "https://liquipedia.net/rainbowsix/Portal:Tournaments"]] },
+    "league-of-legends": { editeur: "Riot Games", parcours: [
+      "LEC : ligue européenne de niveau 1 (équipes partenaires).",
+      "ERL : 13 ligues régionales européennes (LFL en France, Prime League, LIT, Hitpoint Masters, etc.) en trois splits : hiver (janv.-mars), printemps (mars-juin), été (juin-sept.).",
+      "EMEA Masters : tournoi de fin de split réunissant les meilleures équipes des ERL (hiver mars, printemps juin, été sept.-oct.)."],
+      note: "Les règles de montée et d'accès des équipes amateurs dépendent de chaque ligue : vérifie sur le site de la ligue concernée.",
+      liens: [["Saison ERL 2026 (LoL Esports)", "https://lolesports.com/en-GB/news/2026-erl-season-dates-leagues-and-key-updates"], ["LoL Esports", "https://lolesports.com/"], ["Tournois LoL par niveau (Liquipedia)", "https://liquipedia.net/leagueoflegends/Portal:Tournaments"]] },
+    "counter-strike-2": { editeur: "Valve (organisateurs : ESL, BLAST, FACEIT)", parcours: [
+      "Les tournois sont organisés par des opérateurs privés (Valve n'a pas de ligue). Classement mondial VRS pour les invitations.",
+      "ESL Pro Tour 2026 : Global Qualifier en ligne sur serveurs européens (Open Qualifier puis Closed Qualifier à 16 équipes : 12 invitées par le VRS et 4 venues de l'Open). Exemples : IEM Brésil, Atlanta, Pékin.",
+      "ESL Challenger League et ESEA (FACEIT) : circuits intermédiaires ; la page officielle n'indique pas s'ils mènent à des qualifications.",
+      "Il faut une vérification FACEIT pour les qualifications."],
+      note: "À vérifier à chaque tournoi : dates de signature d'effectif et conditions d'accès.",
+      liens: [["Qualifications ESL Pro Tour 2026", "https://pro.eslgaming.com/tour/?p=94093"], ["Aide FACEIT (ESEA)", "https://support.faceit.com/hc/en-us/articles/21140025505692-What-s-ESEA-Elite"], ["Tournois CS par niveau (Liquipedia)", "https://liquipedia.net/counterstrike/Portal:Tournaments"], ["Qualifications CS (Liquipedia)", "https://liquipedia.net/counterstrike/Qualifier_Tournaments"]] },
+    "call-of-duty": { editeur: "Activision", parcours: [
+      "Call of Duty League (CDL) : ligue à franchises, fermée. La saison 2026 compte deux Majors européens.",
+      "Call of Duty Challengers : circuit ouvert, la voie normale pour une structure qui n'est pas dans la CDL."],
+      note: "Pas de détail officiel vérifié sur les qualifications européennes : ouvre la page Challengers 2026 sur Liquipedia.",
+      liens: [["Challengers 2026 – Open (Liquipedia)", "https://liquipedia.net/callofduty/Call_of_Duty_Challengers/2026/Open"], ["Calendrier CDL 2025-2026", "https://esports.gg/guides/call-of-duty/full-call-of-duty-league-schedule-for-2025-2026"], ["Tournois CoD par niveau (Liquipedia)", "https://liquipedia.net/callofduty/Portal:Tournaments"]] },
+    "rocket-league": { editeur: "Psyonix / Epic Games", parcours: [
+      "RLCS 2026 : trois Opens sur le split, avec des points cumulés (1er = 15 points, jusqu'à la 13e-16e place = 1).",
+      "Les 8 équipes les plus fournies en points de l'Open 1 entrent directement en phase Swiss de l'Open 2 ; idem Opens 1+2 pour l'Open 3.",
+      "Les 4 meilleures équipes européennes au total des points vont au Major 1 (LAN). Puis Major 2 et Championnat du monde (septembre).",
+      "Une nouvelle équipe se fait connaître en gagnant des points dans le top 16 des Opens."],
+      note: "La page officielle ne détaille pas les qualifications ouvertes ni les dotations : voir les règles officielles 2026.",
+      liens: [["RLCS 2026 : Open 1 (officiel)", "https://www.rocketleague.com/news/rlcs-2026-open-1"], ["RLCS sur Liquipedia", "https://liquipedia.net/rocketleague/RLCS"], ["Tournois RL par niveau (Liquipedia)", "https://liquipedia.net/rocketleague/Portal:Tournaments"]] },
+    "fortnite": { editeur: "Epic Games", parcours: [
+      "FNCS : le circuit officiel, organisé en Cups, Majors et Global Championship, avec des divisions.",
+      "Les Cash Cups et divisions servent de voie d'accès aux phases supérieures."],
+      note: "Je n'ai pas pu lire de page détaillant le parcours 2026 : vérifie le règlement officiel de la saison en cours.",
+      liens: [["Fortnite Compétitif (officiel)", "https://www.fortnite.com/competitive"], ["Tournois Fortnite par niveau (Liquipedia)", "https://liquipedia.net/fortnite/Portal:Tournaments"]] },
+    "halo": { editeur: "343 Industries / Halo Studios", parcours: [
+      "HCS (Halo Championship Series) : circuit officiel, avec des Open Series accessibles à toutes les équipes inscrites et des événements sur invitation."],
+      note: "Je n'ai trouvé que des pages anciennes : le parcours actuel est à confirmer sur Halo Waypoint.",
+      liens: [["Open Series (Halo Waypoint)", "https://www.halowaypoint.com/news/open-series"], ["Tournois Halo par niveau (Liquipedia)", "https://liquipedia.net/halo/Portal:Tournaments"]] }
+  };
+  function ficheOf(jeu) { var s = slugify(jeu || ""); return FICHES[s] || null; }
+  function ficheHtml(o) {
+    var f = ficheOf(o.jeu); if (!f) return "";
+    return '<details class="more" data-det="fiche"><summary>Comprendre la scène de ' + esc(o.jeu) + " (parcours et sources officielles)</summary>" +
+      '<p class="hint">' + esc(f.editeur) + ' · fiche relevée le ' + FICHES_MAJ + ". À revérifier à chaque saison.</p><ul class=\"plain\">" + f.parcours.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>" +
+      (f.note ? '<p class="hint">' + esc(f.note) + "</p>" : "") +
+      '<p class="hint">Liens utiles :</p><ul class="plain">' + f.liens.map(function (l) { return '<li><a href="' + esc(l[1]) + '" target="_blank" rel="noopener noreferrer">' + esc(l[0]) + "</a></li>"; }).join("") + "</ul></details>";
+  }
   var REGIONS = ["Europe", "Mondial", "Amérique du Nord", "Amérique du Sud", "Asie", "Océanie", "Moyen-Orient", "Autre"];
   /* Tournois en ligne accessibles depuis l'Europe (EUW) : ceux de l'Europe ou ouverts au monde entier. */
   function regionOk(r) { return !r || r === "Europe" || r === "Mondial"; }
