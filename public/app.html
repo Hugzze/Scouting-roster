@@ -162,6 +162,10 @@ select.cell.place { min-width: 190px; }
 .scen-h { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; width: 100%; font-size: 13px; }
 .scen-n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .scen-sub { font-size: 12px; color: var(--muted); }
+.cible-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.scen-plan { display: grid; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 6px; border-top: 1px solid var(--line); padding-top: 8px; width: 100%; }
+.scen-plan strong { color: var(--fg); display: block; }
+.scen-plan ul { margin: 2px 0 0; padding-left: 16px; }
 select.ov, select.cell.ov { border-color: var(--gold); color: var(--gold); }
 details.fold { display: block; min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--panel); }
 details.fold > * + * { margin-top: 12px; }
@@ -750,7 +754,7 @@ details.card.more { padding: 18px 22px; }
   }
 
   /* --- scénarios et événements de la saison --- */
-  var SCEN = [["sous", "Décevant"], ["real", "Moyen"], ["sur", "Bon"], ["exc", "Exceptionnel"]];
+  var SCEN = [["sous", "Décevant"], ["real", "Bon"], ["sur", "Excellent"], ["exc", "Divin"]];
   function topsOf(opp) {
     var real = num(opp.topMoyen);
     real = real != null ? Math.max(1, Math.round(real)) : null;
@@ -948,7 +952,7 @@ details.card.more { padding: 18px 22px; }
     if (nDates) miss.push("les dates de " + nDates + " LAN");
     if (nZone) miss.push("le prix du voyage pour " + nZone + " événement" + (nZone > 1 ? "s" : "") + " en zone « Autre »");
     if (miss.length) infos.push("À compléter : " + miss.join(", ") + ".");
-    if (empty && oc.rows.length) return { v: "todo", label: "Sans enjeu à ce niveau", reasons: [{ ok: true, t: "Avec un résultat moyen, l'équipe ne touche aucun cashprize : les événements retenus ne coûtent rien et ne rapportent rien. Regarde les scénarios bon et exceptionnel pour voir le potentiel." }], infos: [] };
+    if (empty && oc.rows.length) return { v: "todo", label: "Sans enjeu à ce niveau", reasons: [{ ok: true, t: "Avec un résultat moyen, l'équipe ne touche aucun cashprize : les événements retenus ne coûtent rien et ne rapportent rien. Regarde les scénarios excellent et divin pour voir le potentiel." }], infos: [] };
     if (empty) return { v: "todo", label: "À compléter", reasons: [], infos: ["Choisis un jeu (ou colle le lien de la scène), puis coche les événements où vous jouez pour lancer le calcul."] };
     if (opp.statut === "refusee") {
       var okR = oc.bilan >= 0 && (!fi.known || fi.ok) && !over;
@@ -1156,7 +1160,7 @@ details.card.more { padding: 18px 22px; }
     if (num(o.mois) == null) o.mois = 10;
     if (num(o.topMoyen) == null) o.topMoyen = o.niveauComp === "challenger" ? 16 : 8;
   }
-  /* Choisit tout seul le calendrier : les événements qui rapportent au moins autant qu'ils coûtent (scénario réaliste). */
+  /* Choisit tout seul le calendrier : les événements qui rapportent au moins autant qu'ils coûtent (scénario bon). */
   function autoPick(o) {
     anaDefaults(o);
     var r = R(), T = topsOf(o), sc = anaScope(o);
@@ -1318,17 +1322,18 @@ details.card.more { padding: 18px 22px; }
     if (!o.topOk) needs.push("niveau");
     if (num(o.salairesMois) == null) needs.push("salaires");
     if (hasLan && !o.lanPrise) needs.push("lan");
-    var prov = needs.length > 0;
-    if (prov) {
-      h += '<section class="card ask" aria-labelledby="h-ask"><h2 id="h-ask" class="section-title">Avant de conclure</h2><p class="hint">Il me manque ' + (needs.length > 1 ? "des informations" : "une information") + " pour te donner un verdict fiable. Tant que ce n'est pas rempli, l'analyse reste provisoire.</p>";
+    var prov = false;
+    h += cibleHtml(x, ctx);
+    if (needs.length) {
+      h += '<details class="more ask" data-det="ana-ask"><summary>Affiner le résultat (facultatif)</summary><p class="hint">Par défaut : équipe autour de la ' + (o.niveauComp === "challenger" ? "16e" : "8e") + " place, aucun salaire, déplacements en LAN payés par la structure. Réponds pour remplacer ces hypothèses.</p>";
       if (needs.indexOf("comp") >= 0) h += '<label class="field"><span>Niveau de compétition visé</span><select data-k="' + k("niveauComp") + '" class="need"><option value="">Choisir…</option>' + NIVEAUX.map(function (n) { return '<option value="' + n[0] + '">' + esc(n[1]) + "</option>"; }).join("") + "</select><small>Pro (T1) ou Challenger (T2) : le site relit les tournois qui correspondent.</small></label>";
       if (needs.indexOf("niveau") >= 0) h += '<label class="field"><span>À quelle place l\'équipe finit-elle en général ?</span><select data-k="' + k("topMoyen") + '" class="need"><option value="">Choisir…</option>' + TOP_CHOICES.map(function (t) { return '<option value="' + t[0] + '">' + esc(t[1]) + "</option>"; }).join("") + "</select></label>";
       if (needs.indexOf("salaires") >= 0) h += '<div class="field"><span>Les joueurs sont-ils salariés par la structure ?</span><div class="row-actions"><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="sal0">Non, pas de salaires</button></div>' +
         '<input type="text" inputmode="decimal" data-k="' + k("salairesMois") + '" value="" placeholder="Oui : total des salaires par mois (€)" aria-label="Salaires par mois"></div>';
       if (needs.indexOf("lan") >= 0) h += '<div class="field"><span>Qui paie les déplacements en LAN (voyage, hôtel, repas) ?</span><div class="row-actions"><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-structure">La structure</button><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-moitie">Moitié-moitié</button><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-joueurs">Les joueurs</button></div></div>';
-      h += "</section>";
+      h += "</details>";
     }
-    h += '<section class="verdict ' + (prov ? "" : vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '" aria-label="Verdict"><div class="verdict-top"><div><div class="sub-title">' + (prov ? "Analyse provisoire · scénario réaliste" : "Verdict sur la saison · scénario réaliste") + '</div><div class="verdict-label">' + esc(prov ? "Provisoire : à confirmer" : vd.label) + "</div></div>" +
+    h += '<section class="verdict ' + (prov ? "" : vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '" aria-label="Verdict"><div class="verdict-top"><div><div class="sub-title">' + (prov ? "Analyse provisoire · scénario bon" : "Verdict sur la saison · scénario bon") + '</div><div class="verdict-label">' + esc(prov ? "Provisoire : à confirmer" : vd.label) + "</div></div>" +
       '<div class="kpis" style="flex:1 1 420px"><div class="kpi"><span>Ça coûte</span><strong>' + eur(oc.cout) + '</strong></div><div class="kpi"><span>Ça rapporte</span><strong>' + eur(oc.ret) + '</strong></div><div class="kpi"><span>Bilan</span><strong class="' + cls(oc.bilan) + '">' + signed(oc.bilan) + "</strong></div></div></div>" +
       scenCardsHtml(x, prov) + (prov ? '<p class="hint">Les chiffres ci-dessus supposent ' + (needs.indexOf("niveau") >= 0 ? "un niveau « autour de la 8e place »" : "tes réponses") + (needs.indexOf("salaires") >= 0 ? ", aucun salaire" : "") + (needs.indexOf("lan") >= 0 ? " et que la structure paie les LAN" : "") + ". Réponds aux questions pour un verdict fiable.</p>" : reasonsHtml(vd)) + "</section>";
 
@@ -1465,6 +1470,45 @@ details.card.more { padding: 18px 22px; }
 
   /* --- Vue opportunité --- */
   function detOpen(key) { return state.det[key] !== false; }
+  /* Ce qu'il faut chercher pour qu'une opportunité soit rentable ou à l'équilibre (argent ou visibilité). */
+  function cibleHtml(x, ctx) {
+    var o = x.opp, oc = x.oc, r = ctx.r, tops = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
+    if (!oc.rows.length) return "";
+    var okFin = null, okVis = null;
+    tops.forEach(function (t) {
+      var oct = calcOpp(Object.assign({}, o, { topMoyen: t }), r, "real");
+      if (oct.bilanFin >= 0) okFin = t;
+      if (oct.bilan >= 0) okVis = t;
+    });
+    var li = [];
+    li.push("<li><strong>Rentable en argent seul</strong> : " + (okFin != null ? "finir dans le top " + okFin + " ou mieux sur les événements retenus." : "pas atteignable avec ce calendrier, même en finissant 1er.") + "</li>");
+    var gap = oc.cout - oc.retFin;
+    if (gap <= 0) li.push("<li><strong>Visibilité</strong> : pas nécessaire au niveau actuel, les gains couvrent déjà les coûts.</li>");
+    else {
+      var fol = r.coutFollower > 0 ? Math.ceil(gap / r.coutFollower / 100) * 100 : null;
+      li.push("<li><strong>À l'équilibre avec la visibilité</strong> : " + (okVis != null ? "top " + okVis + " ou mieux" : "pas atteignable par les seuls résultats") + (fol != null ? ", ou environ " + int(fol) + " followers gagnés pour combler l'écart de " + eur(gap) + " au niveau actuel." : ".") + "</li>");
+    }
+    var capa = oc.bilan + oc.sal, mois = n0(o.mois);
+    li.push("<li><strong>Salaires</strong> : " + (capa <= 0 ? "aucun salaire possible au niveau actuel sans perdre d'argent." : "jusqu'à " + eur(Math.floor(capa / (mois > 0 ? mois : 1) / 10) * 10) + (mois > 0 ? " par mois" : " sur la saison") + " pour toute l'équipe.") + "</li>");
+    var best = oc.rows.filter(function (q) { return !q.c.skip; }).slice().sort(function (a, b) { return b.c.solde - a.c.solde; }).slice(0, 3);
+    if (best.length) li.push("<li><strong>Événements à viser en priorité</strong> : " + best.map(function (q) { return esc(q.c.e.nom); }).join(", ") + ".</li>");
+    li.push("<li><strong>Budget à prévoir</strong> : " + eur(oc.cout) + " pour la saison.</li>");
+    return '<section class="card cible"><div class="sub-title">Ce qu\'il faut chercher pour que ce soit rentable</div><ul class="cible-list">' + li.join("") + "</ul></section>";
+  }
+  function scenPlanHtml(x, s) {
+    var oc = x.sc[s[0]], o = x.opp, top = oc.T[s[0]];
+    var capa = oc.bilan + oc.sal, mois = n0(o.mois), salTxt;
+    if (capa <= 0) salTxt = "Non : sans salaire, la saison est déjà à " + signed(oc.bilan) + ".";
+    else if (mois > 0) salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / mois / 10) * 10) + " par mois pour toute l'équipe.";
+    else salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / 10) * 10) + " sur la saison (durée à renseigner pour le détail par mois).";
+    var wins = oc.rows.filter(function (r) { return !r.c.skip && r.c.gainEq > 0; });
+    wins.sort(function (a, b) { return b.c.gainEq - a.c.gainEq; });
+    var list = wins.slice(0, 4).map(function (r) { return "<li>" + esc(r.c.e.nom) + " : " + esc(r.c.pl.label) + "</li>"; }).join("");
+    if (wins.length > 4) list += "<li>+ " + (wins.length - 4) + " autre" + (wins.length - 4 > 1 ? "s" : "") + "</li>";
+    return '<div class="scen-plan"><div><strong>Top à atteindre</strong> ' + (top != null ? "top " + top : "à renseigner") + "</div>" +
+      "<div><strong>Salaire</strong> " + salTxt + "</div>" +
+      "<div><strong>Résultats à viser</strong>" + (list ? "<ul>" + list + "</ul>" : " aucun prix à ce niveau") + "</div></div>";
+  }
   function scenCardsHtml(x, prov) {
     return '<div class="scen-strip">' + SCEN.map(function (s) {
       var oc = x.sc[s[0]], v = x.scv[s[0]].vd, top = oc.T[s[0]];
@@ -1472,7 +1516,7 @@ details.card.more { padding: 18px 22px; }
         '<div class="scen-h"><strong>' + s[1] + '</strong><span class="mut">' + (top != null ? "top " + top : "top ?") + "</span></div>" +
         '<div class="scen-n ' + cls(oc.bilan) + '">' + signed(oc.bilan) + "</div>" +
         '<div class="scen-sub">Coûts ' + eur(oc.cout) + " · retours " + eur(oc.ret) + "</div>" +
-        (prov ? "" : '<span class="pill v-' + v.v + '">' + esc(v.label) + "</span>") + "</div>";
+        (prov ? "" : '<span class="pill v-' + v.v + '">' + esc(v.label) + "</span>" + scenPlanHtml(x, s)) + "</div>";
     }).join("") + "</div>";
   }
   function jeuField(o, bare) {
@@ -1501,7 +1545,7 @@ details.card.more { padding: 18px 22px; }
 
     // Verdict en tête
     h += '<section class="verdict ' + (vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '" aria-label="Verdict">' +
-      '<div class="verdict-top"><div><div class="sub-title">Verdict sur la saison · scénario réaliste</div><div class="verdict-label">' + esc(vd.label) + "</div></div>" +
+      '<div class="verdict-top"><div><div class="sub-title">Verdict sur la saison · scénario bon</div><div class="verdict-label">' + esc(vd.label) + "</div></div>" +
       '<div class="kpis" style="flex:1 1 420px">' +
         '<div class="kpi"><span>Coûts de la saison</span><strong>' + eur(oc.cout) + "</strong></div>" +
         '<div class="kpi"><span>Retours (visibilité comprise)</span><strong>' + eur(oc.ret) + "</strong></div>" +
@@ -1525,15 +1569,15 @@ details.card.more { padding: 18px 22px; }
       "</div>" +
       sceneBoxHtml(o) +
       '<h3 class="sub-title">Niveau de l\'équipe</h3><div class="fields">' +
-        '<label class="field"><span>Top moyen de l\'équipe (scénario réaliste)</span>' + cellIn(k("topMoyen"), o.topMoyen, "Ex. 12", " wide") + "<small>La place que l'équipe fait en général.</small></label>" +
-        '<label class="field"><span>Top en scénario « bon »</span>' + cellIn(k("topSur"), o.topSur, T.sur != null ? String(T.sur) : "Auto", " wide") + "<small>Vide = moitié du top moyen.</small></label>" +
+        '<label class="field"><span>Top moyen de l\'équipe (scénario bon)</span>' + cellIn(k("topMoyen"), o.topMoyen, "Ex. 12", " wide") + "<small>La place que l'équipe fait en général.</small></label>" +
+        '<label class="field"><span>Top en scénario « excellent »</span>' + cellIn(k("topSur"), o.topSur, T.sur != null ? String(T.sur) : "Auto", " wide") + "<small>Vide = moitié du top moyen.</small></label>" +
         '<label class="field"><span>Top en scénario « décevant »</span>' + cellIn(k("topSous"), o.topSous, T.sous != null ? String(T.sous) : "Auto", " wide") + "<small>Vide = top moyen × 2.</small></label>" +
         '<label class="field"><span>Part du cashprize gardée par la structure (%)</span>' + cellIn(k("partStructure"), o.partStructure, dec(r.partStructure), " wide") + "<small>Le reste va aux joueurs. Modifiable par événement.</small></label>" +
       "</div>" +
       '<label class="field"><span>Notes</span><textarea data-k="' + k("notes") + '" placeholder="Contacts, conditions, roster envisagé…">' + esc(o.notes || "") + "</textarea></label></section>";
 
     // 2. Argent restant
-    h += '<section class="card" id="etape-2"><div class="step-h"><span class="step-n">2</span><div><h2>Argent restant dans l\'asso</h2><p>Ce qu\'on peut engager avant cette opportunité (scénario réaliste).</p></div></div>';
+    h += '<section class="card" id="etape-2"><div class="step-h"><span class="step-n">2</span><div><h2>Argent restant dans l\'asso</h2><p>Ce qu\'on peut engager avant cette opportunité (scénario bon).</p></div></div>';
     if (!fi.known) {
       h += '<div class="empty"><p>Renseigne la masse financière totale dans les Paramètres (finances du club) pour faire ce calcul.</p><button class="ghost" type="button" data-act="tab" data-tab="reglages">Ouvrir les paramètres</button></div>';
     } else {
@@ -1674,7 +1718,7 @@ details.card.more { padding: 18px 22px; }
       line("dont bilan financier pur", function (c) { return '<span class="' + cls(c.bilanFin) + '">' + signed(c.bilanFin) + "</span>"; }) +
       line("Verdict", function (c, s) { var v = x.scv[s].vd; return '<span class="pill v-' + v.v + '">' + esc(v.label) + "</span>"; }) +
       "</tbody></table></div>" +
-      '<div class="verdict ' + (vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '"><div class="sub-title">Scénario réaliste</div><div class="verdict-label">' + esc(vd.label) + "</div>" + reasonsHtml(vd) + "</div></section>";
+      '<div class="verdict ' + (vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '"><div class="sub-title">Scénario bon</div><div class="verdict-label">' + esc(vd.label) + "</div>" + reasonsHtml(vd) + "</div></section>";
     return h;
   }
 
@@ -1877,7 +1921,7 @@ details.card.more { padding: 18px 22px; }
       "<li><strong>Coût d'un événement</strong> = défraiement (personnes × (transport + nuits × logement), selon la zone) + nourriture (personnes × jours × prix par jour) + ticket de team + prime. En ligne : ni défraiement ni nourriture.</li>" +
       "<li><strong>Coût de la saison</strong> = somme des événements + salaires (par mois × durée) + autres frais de saison.</li>" +
       "<li><strong>Événements de la saison</strong> = tous les événements du jeu présents dans le catalogue, plus ceux ajoutés à la main, moins ceux retirés.</li>" +
-      "<li><strong>3 scénarios</strong> : réaliste = top moyen de l'équipe ; surperf = moitié du top moyen ; sous-perf = top moyen × 1,5, et les événements à qualification incertaine ne sont pas joués. Chaque place reste modifiable événement par événement.</li>" +
+      "<li><strong>4 scénarios</strong> : bon = top moyen de l'équipe ; excellent = moitié du top moyen ; divin = un huitième du top moyen ; décevant = top moyen × 2, et les événements à qualification incertaine ne sont pas joués. Chaque place reste modifiable événement par événement.</li>" +
       "<li><strong>Cashprize pour la structure</strong> = ce que gagne l'équipe à la place visée (grille officielle, convertie en euros) × part gardée par la structure. Sans grille publiée : cashprize × % par défaut.</li>" +
       "<li><strong>Boutique</strong> = prix d'un bundle × ventes estimées, moins la part reversée aux joueurs.</li>" +
       "<li><strong>Visibilité</strong> = (followers gagnés aux événements + part de l'audience des joueurs, trouvée sur Instagram, X, TikTok, YouTube et Twitch) × coût d'un follower en pub. C'est la pub qu'on n'a pas eu à payer.</li>" +
