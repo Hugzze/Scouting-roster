@@ -281,12 +281,14 @@ async function askClaude(env, prompt, images, opts) {
   (images || []).forEach(function (im) { content.push({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } }); });
   content.push({ type: "text", text: prompt });
   var body = { model: model, max_tokens: 16000, system: "Tu réponds uniquement par l'objet JSON demandé, sans texte avant ni après, sans bloc de code.", messages: [{ role: "user", content: content }] };
-  if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+  if (opts.search) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }];
   var key = String(env.ANTHROPIC_API_KEY || "").replace(/\s+/g, "");
   if (!/^[A-Za-z0-9_\-]{20,}$/.test(key))
     throw { status: 502, code: "upstream_error", message: "La clé Anthropic enregistrée dans Cloudflare contient des caractères invalides (" + key.length + " caractères). Recopie-la en entier depuis la console Anthropic, sans guillemets ni points de suspension, ou crée-en une nouvelle." };
   var texts = [], truncated = false, stop = "", tries = 0;
-  while (tries++ < 5) {
+  while (tries++ < 6) {
+    /* dernier tour : plus de recherche, il faut répondre avec ce qui a été trouvé */
+    if (tries === 6 && body.tools) body.tool_choice = { type: "none" };
     var res;
     try {
       res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
