@@ -13,6 +13,7 @@ binding = "DB"
 database_name = "scouting-roster"
 
 [vars]
+GUIDE_SHEET_ID = "1MvwgZJxD5jJ4kOYJyMzUsC7og8lkw5L697MWCZ4ampg"
 GEMINI_MODEL = "gemini-3.5-flash,gemini-3.8-flash,gemini-3.5-flash-lite"
 # Lectures IA par jour : au total, et par compte (protège la limite gratuite de Gemini).
 DAILY_READS = "300"
