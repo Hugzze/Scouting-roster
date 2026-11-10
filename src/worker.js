@@ -319,7 +319,7 @@ function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? as
 
 /* ---------- guides par jeu (Google Sheet "Banque de données Scouting Roster") ---------- */
 const GUIDE_CACHE_MS = 3 * 3600 * 1000;
-const GUIDE_MAX_CHARS = 14000;
+const GUIDE_MAX_CHARS = 30000;
 const GUIDE_GAMES = [
   { tab: "Guide Valorant", re: /\bvalorant\b/ },
   { tab: "Guide Apex Legends", re: /\bapex\b/ },
@@ -402,7 +402,7 @@ async function withGuide(env, prompt) {
     if (!tabs.length) return prompt;
     var parts = [];
     for (var i = 0; i < tabs.length; i++) parts.push("### " + tabs[i] + "\n" + await readGuide(env, tabs[i]));
-    return "INFORMATIONS DE RÉFÉRENCE (Google Sheet « Banque de données Scouting Roster », mis à jour par Majin). Utilise-les pour répondre sur le jeu. Si une information est notée « non lu » ou « non trouvé », ne l'invente pas.\n\n" + parts.join("\n\n") + "\n\n--- DEMANDE ---\n" + prompt;
+    return "INFORMATIONS DE RÉFÉRENCE (Google Sheet « Banque de données Scouting Roster », mis à jour par Majin). C'est ta base : elle contient déjà le calendrier 2026 (Pro, Challenger, Amateur), les cash prizes et les vainqueurs. Utilise-la d'abord. Si tu fais des recherches web, 3 au maximum, sers-t'en uniquement pour compléter ou vérifier (dates 2027 annoncées, résultats récents, informations notées « non lu »), sans refaire ce que le guide donne déjà. Ne cherche jamais une information déjà présente. Si une information reste introuvable, ne l'invente pas.\n\n" + parts.join("\n\n") + "\n\n--- DEMANDE ---\n" + prompt;
   } catch (e) { return prompt; }
 }
 
