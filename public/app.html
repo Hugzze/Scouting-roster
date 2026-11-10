@@ -1139,7 +1139,9 @@ details.card.more { padding: 18px 22px; }
       if (!d) undated.push(ev); else if (d >= w.from && d <= w.to) inWin.push(ev);
     });
     var fut = inWin.filter(function (ev) { var e = effEvent(ev); return (e.fin || e.debut) >= w.today; });
-    var futur = fut.length >= 3;
+    /* La saison à venir ne sert que si elle est assez fournie ET dotée de cashprizes ; sinon (calendrier 2027 pas encore sorti, simples qualifs à 0 €) on prend les 12 derniers mois comme référence. */
+    var futCash = fut.filter(function (ev) { var e = effEvent(ev); return n0(e.cashprize) > 0 || (e.paliers && e.paliers.length); }).length;
+    var futur = fut.length >= 3 && futCash >= 3;
     return { list: (futur ? fut : inWin).concat(undated), futur: futur, w: w, hors: hors };
   }
   /* Nombre de titulaires par équipe dans chaque jeu (un remplaçant se rajoute à la main). */
