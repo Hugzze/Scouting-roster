@@ -305,6 +305,95 @@ async function askClaude(env, prompt, images, opts) {
 }
 function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? askClaude(env, prompt, images, opts) : askGemini(env, prompt, images, opts); }
 
+/* ---------- guides par jeu (Google Sheet "Banque de données Scouting Roster") ---------- */
+const GUIDE_CACHE_MS = 3 * 3600 * 1000;
+const GUIDE_MAX_CHARS = 14000;
+const GUIDE_GAMES = [
+  { tab: "Guide Valorant", re: /\bvalorant\b/ },
+  { tab: "Guide Apex Legends", re: /\bapex\b/ },
+  { tab: "Guide Rainbow Six Siege", re: /\brainbow six\b|\br6\b/ },
+  { tab: "Guide League of Legends", re: /\bleague of legends\b|\blol\b/ },
+  { tab: "Guide Counter-Strike 2", re: /\bcounter[- ]?strike\b|\bcs2\b|\bcsgo\b/ },
+  { tab: "Guide Call of Duty", re: /\bcall of duty\b|\bcod\b|\bwarzone\b/ },
+  { tab: "Guide Rocket League", re: /\brocket league\b/ },
+  { tab: "Guide Fortnite", re: /\bfortnite\b/ },
+  { tab: "Guide Halo", re: /\bhalo\b/ },
+  { tab: "Guide Dota 2", re: /\bdota\b/ },
+  { tab: "Guide Overwatch 2", re: /\boverwatch\b/ },
+  { tab: "Guide Marvel Rivals", re: /\bmarvel rivals\b/ },
+  { tab: "Guide PUBG", re: /\bpubg\b/ },
+  { tab: "Guide EA Sports FC", re: /\bea sports fc\b|\bfc ?2\d\b|\bfifa\b/ },
+  { tab: "Guide Street Fighter 6", re: /\bstreet fighter\b|\bsf6\b/ },
+  { tab: "Guide Tekken 8", re: /\btekken\b/ },
+  { tab: "Guide Super Smash Bros", re: /\bsmash\b/ },
+  { tab: "Guide Teamfight Tactics", re: /\bteamfight\b|\btft\b/ },
+  { tab: "Guide Wild Rift", re: /\bwild rift\b/ },
+  { tab: "Guide Mobile Legends", re: /\bmobile legends\b|\bmlbb\b/ },
+  { tab: "Guide Free Fire", re: /\bfree fire\b/ },
+  { tab: "Guide Brawl Stars", re: /\bbrawl stars\b/ },
+  { tab: "Guide Clash Royale", re: /\bclash royale\b/ },
+  { tab: "Guide Age of Empires II", re: /\bage of empires\b|\baoe\b/ },
+  { tab: "Guide Starcraft II", re: /\bstarcraft\b|\bsc2\b/ },
+  { tab: "Guide Trackmania", re: /\btrackmania\b/ }
+];
+function guideMatches(text) {
+  var t = String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  var hits = GUIDE_GAMES.filter(function (g) { return g.re.test(t); }).map(function (g) { return g.tab; });
+  if (hits.indexOf("Guide Wild Rift") >= 0) hits = hits.filter(function (h) { return h !== "Guide League of Legends"; });
+  return hits;
+}
+function parseCsv(txt) {
+  var rows = [], row = [], cell = "", q = false;
+  for (var i = 0; i < txt.length; i++) {
+    var ch = txt[i];
+    if (q) {
+      if (ch === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && txt[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+async function readGuide(env, tab) {
+  var id = env.GUIDE_SHEET_ID;
+  if (!id) throw { status: 503, code: "not_configured", message: "Le Google Sheet des guides n'est pas configuré." };
+  var key = "guide:" + id + ":" + tab;
+  var c = await env.DB.prepare("SELECT text, fetched_at FROM page_cache WHERE url=?").bind(key).first();
+  if (c && Date.now() - c.fetched_at < GUIDE_CACHE_MS) return c.text;
+  var res;
+  try {
+    res = await fetch("https://docs.google.com/spreadsheets/d/" + encodeURIComponent(id) + "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(tab), { headers: { "user-agent": userAgent(env) }, signal: AbortSignal.timeout(15000), redirect: "follow" });
+  } catch (e) {
+    if (c) return c.text;
+    throw { status: 502, code: "upstream_error", message: "Le Google Sheet ne répond pas." };
+  }
+  var body = res.ok ? await res.text() : "";
+  if (!res.ok || /^\s*<(!doctype|html)/i.test(body)) {
+    if (c) return c.text;
+    throw { status: 502, code: "upstream_error", message: "Lecture du Google Sheet impossible. Vérifie qu'il est partagé en lecture par lien." };
+  }
+  var text = parseCsv(body).map(function (r) {
+    var a = (r[0] || "").trim(), b = (r[1] || "").trim();
+    return a && b ? a + " : " + b : (a || b);
+  }).filter(Boolean).join("\n").slice(0, GUIDE_MAX_CHARS);
+  if (!text) throw { status: 404, code: "not_found", message: "Onglet vide ou introuvable : " + tab };
+  await env.DB.prepare("INSERT INTO page_cache(url,text,source,fetched_at) VALUES(?,?,?,?) ON CONFLICT(url) DO UPDATE SET text=excluded.text, source=excluded.source, fetched_at=excluded.fetched_at").bind(key, text, "sheet", Date.now()).run();
+  return text;
+}
+/* Ajoute au prompt le guide du jeu cité (jamais bloquant : sans guide, la demande part telle quelle). */
+async function withGuide(env, prompt) {
+  try {
+    var tabs = guideMatches(prompt).slice(0, 2);
+    if (!tabs.length) return prompt;
+    var parts = [];
+    for (var i = 0; i < tabs.length; i++) parts.push("### " + tabs[i] + "\n" + await readGuide(env, tabs[i]));
+    return "INFORMATIONS DE RÉFÉRENCE (Google Sheet « Banque de données Scouting Roster », mis à jour par Majin). Utilise-les pour répondre sur le jeu. Si une information est notée « non lu » ou « non trouvé », ne l'invente pas.\n\n" + parts.join("\n\n") + "\n\n--- DEMANDE ---\n" + prompt;
+  } catch (e) { return prompt; }
+}
+
 /* ---------- quotas ---------- */
 async function countUse(env, who) {
   var r = await env.DB.prepare("SELECT n FROM usage WHERE day=? AND who=?").bind(today(), who).first();
@@ -408,6 +497,13 @@ async function handleApi(request, env, url) {
     catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
   }
 
+  if (path === "/api/guide" && method === "GET") {
+    var gt = guideMatches(url.searchParams.get("game"));
+    if (!gt.length) return fail(404, "not_found", "Aucun guide pour ce jeu.");
+    try { return json({ tab: gt[0], text: await readGuide(env, gt[0]) }); }
+    catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
+  }
+
   if (path === "/api/ai" && method === "POST") {
     var b2 = await readJson(request, 30000000);
     var prompt = b2 && typeof b2.prompt === "string" ? b2.prompt : "";
@@ -422,7 +518,7 @@ async function handleApi(request, env, url) {
     if ((await countUse(env, "ai:" + me.uid)) >= capUser) return fail(429, "rate_limited", "Tu as atteint ta limite de " + capUser + " lectures par jour. Réessaie demain.");
     if ((await countUse(env, "ai")) >= cap) return fail(429, "rate_limited", "Limite quotidienne de lectures atteinte pour tous les comptes (" + cap + "). Réessaie demain.");
     try {
-      var r = await askModel(env, prompt, imgs, { search: b2.search === true });
+      var r = await askModel(env, await withGuide(env, prompt), imgs, { search: b2.search === true });
       await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
       return json(r);
     } catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
