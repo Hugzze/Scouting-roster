@@ -285,23 +285,33 @@ async function askClaude(env, prompt, images, opts) {
   var key = String(env.ANTHROPIC_API_KEY || "").replace(/\s+/g, "");
   if (!/^[A-Za-z0-9_\-]{20,}$/.test(key))
     throw { status: 502, code: "upstream_error", message: "La clé Anthropic enregistrée dans Cloudflare contient des caractères invalides (" + key.length + " caractères). Recopie-la en entier depuis la console Anthropic, sans guillemets ni points de suspension, ou crée-en une nouvelle." };
-  var res;
-  try {
-    res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
-  } catch (e) {
-    var why = e && e.name === "TimeoutError" ? "délai dépassé" : String((e && e.message) || e).slice(0, 120);
-    throw { status: 502, code: "upstream_error", message: "Claude ne répond pas (" + why + "). Réessaie dans un instant." };
+  var texts = [], truncated = false, stop = "", tries = 0;
+  while (tries++ < 5) {
+    var res;
+    try {
+      res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
+    } catch (e) {
+      var why = e && e.name === "TimeoutError" ? "délai dépassé" : String((e && e.message) || e).slice(0, 120);
+      throw { status: 502, code: "upstream_error", message: "Claude ne répond pas (" + why + "). Réessaie dans un instant." };
+    }
+    if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite de l'API Claude est atteinte. Réessaie dans quelques instants." };
+    if (res.status === 529 || res.status >= 500) throw { status: 503, code: "overloaded", message: "Claude est très sollicité en ce moment." };
+    if (!res.ok) {
+      var t = ""; try { t = (await res.text()).slice(0, 300); } catch (e) {}
+      throw { status: 502, code: "upstream_error", message: "Claude a refusé la demande (" + res.status + "). Vérifie la clé et le crédit du compte Anthropic. " + t };
+    }
+    var data = await res.json();
+    stop = data.stop_reason || "";
+    var blocks = data.content || [];
+    texts.push(blocks.filter(function (b) { return b.type === "text"; }).map(function (b) { return b.text || ""; }).join(""));
+    truncated = stop === "max_tokens";
+    /* recherche web longue : Claude met sa réponse en pause, on lui demande de continuer */
+    if (stop === "pause_turn" && blocks.length) { body.messages = body.messages.concat([{ role: "assistant", content: blocks }]); continue; }
+    break;
   }
-  if (res.status === 429) throw { status: 429, code: "rate_limited", message: "La limite de l'API Claude est atteinte. Réessaie dans quelques instants." };
-  if (res.status === 529 || res.status >= 500) throw { status: 503, code: "overloaded", message: "Claude est très sollicité en ce moment." };
-  if (!res.ok) {
-    var t = ""; try { t = (await res.text()).slice(0, 300); } catch (e) {}
-    throw { status: 502, code: "upstream_error", message: "Claude a refusé la demande (" + res.status + "). Vérifie la clé et le crédit du compte Anthropic. " + t };
-  }
-  var data = await res.json();
-  var text = (data.content || []).filter(function (b) { return b.type === "text"; }).map(function (b) { return b.text || ""; }).join("");
-  if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Claude n'a rien renvoyé." };
-  return { text: text, truncated: data.stop_reason === "max_tokens" };
+  var text = texts.join("");
+  if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Claude n'a rien renvoyé (arrêt : " + (stop || "inconnu") + "). Relance l'analyse." };
+  return { text: text, truncated: truncated };
 }
 function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? askClaude(env, prompt, images, opts) : askGemini(env, prompt, images, opts); }
 
