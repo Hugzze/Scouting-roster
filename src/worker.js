@@ -318,7 +318,7 @@ async function askClaude(env, prompt, images, opts) {
 function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? askClaude(env, prompt, images, opts) : askGemini(env, prompt, images, opts); }
 
 /* ---------- guides par jeu (Google Sheet "Banque de données Scouting Roster") ---------- */
-const GUIDE_CACHE_MS = 3 * 3600 * 1000;
+const GUIDE_CACHE_MS = 5 * 60 * 1000;
 const GUIDE_MAX_CHARS = 30000;
 const GUIDE_GAMES = [
   { tab: "Guide Valorant", re: /\bvalorant\b/ },
