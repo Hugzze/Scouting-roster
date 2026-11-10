@@ -1130,11 +1130,12 @@ details.card.more { padding: 18px 22px; }
     return "";
   }
   /* Les événements pris en compte : ceux à venir s'il y en a assez, sinon ceux des 12 derniers mois (la saison passée sert de référence). */
+  /* Un tournoi est « du bon niveau » s'il n'est pas rangé dans l'autre niveau (T1 / T2). Tous restent proposés au cochage, seuls ceux du bon niveau sont cochés d'office. */
+  function memeNiveau(o, ev) { var e = effEvent(ev); return !(o.niveauComp && e.cat && e.cat.niveau && e.cat.niveau !== o.niveauComp); }
   function anaScope(o) {
     var w = anaWindow(), inWin = [], undated = [], hors = 0;
     oppEvents(o).forEach(function (ev) {
       var e = effEvent(ev), d = e.debut || e.fin;
-      if (o.niveauComp && e.cat && e.cat.niveau && e.cat.niveau !== o.niveauComp) return;
       if (!e.lan && e.cat && !regionOk(e.cat.region)) { hors++; return; }
       if (!d) undated.push(ev); else if (d >= w.from && d <= w.to) inWin.push(ev);
     });
@@ -1167,7 +1168,7 @@ details.card.more { padding: 18px 22px; }
     anaDefaults(o);
     var r = R(), T = topsOf(o), sc = anaScope(o);
     o.choix = true; o.joue = {};
-    sc.list.forEach(function (ev) { if (calcEv(o, ev, r, "real", T).solde > -0.5) o.joue[ev.id] = true; });
+    sc.list.forEach(function (ev) { if (memeNiveau(o, ev) && calcEv(o, ev, r, "real", T).solde > -0.5) o.joue[ev.id] = true; });
     o.calManuel = false;
   }
   function anaDraw() { if (state.ana && state.tab === "club" && state.oppId === state.ana.id && !state.detail) requestRender(); }
@@ -1269,7 +1270,8 @@ details.card.more { padding: 18px 22px; }
     render();
     /* La recherche officielle démarre tout de suite, pendant que les pages Liquipedia se lisent (elles attendent 30 s entre deux pages). */
     var researchP = anaResearch(o, w, []).then(function (off) { return { off: off }; }, function () { return { off: null }; });
-    var guideP = anaGuide(o, w).then(function (g) { return g; }, function () { return null; });
+    o.guideN = null; o.guideKo = "";
+    var guideP = anaGuide(o, w).then(function (g) { return g; }, function (e) { o.guideKo = String((e && (e.code || e.message)) || "erreur").slice(0, 60); return null; });
     var texts = [], i = 0, tiers = TIERS[o.niveauComp] || TIERS.pro;
     function nextPage() {
       if (i >= tiers.length) return Promise.resolve();
@@ -1294,7 +1296,7 @@ details.card.more { padding: 18px 22px; }
       ana.msg = "J'attends les annonces officielles de l'éditeur…"; ana.pct = 90; anaDraw();
       return researchP.then(function (r) { if (!r.off) { o.officielKo = true; return res; } return mergeOfficial(res, r.off); });
     }).then(function (res) {
-      return guideP.then(function (g) { return g ? mergeGuide(res, g) : res; });
+      return guideP.then(function (g) { if (!g) return res; var m = mergeGuide(res, g); o.guideN = m.guide; return m; });
     }).then(function (res) {
       return ingestScene(o, res, "https://liquipedia.net/" + wiki + "/").then(function (r) { o.officielN = res && res.officiel ? res.officiel.fixed + res.officiel.added : 0; return r; });
     }).then(function () {
@@ -1374,18 +1376,18 @@ details.card.more { padding: 18px 22px; }
 
     var nOff = rows.filter(function (r) { return r.c.e.cat && r.c.e.cat.officiel; }).length;
     h += '<section class="card"><div class="card-h"><h2 class="section-title">Calendrier retenu</h2><span class="hint">' + kept.length + " événement" + (kept.length > 1 ? "s" : "") + " retenu" + (kept.length > 1 ? "s" : "") + " sur " + rows.length + " · " + (sc.futur ? "saison à venir" : "dernière saison (les prochains événements ne sont pas encore publiés)") + "</span></div>" +
-      '<p class="hint">Le site retient les événements qui rapportent au moins autant qu\'ils coûtent. Décoche ou coche pour changer : tout se recalcule.</p>' +
+      '<p class="hint">Le site coche d\'office les événements de ton niveau qui rapportent au moins autant qu\'ils coûtent. Tous les autres sont proposés : coche ou décoche, tout se recalcule.</p>' + (o.guideKo ? '<p class="hint">Guide Google Sheet : lecture impossible (' + esc(o.guideKo) + ").</p>" : o.guideN != null ? '<p class="hint">Guide Google Sheet : ' + o.guideN + " tournoi" + (o.guideN > 1 ? "s" : "") + " ajouté" + (o.guideN > 1 ? "s" : "") + " à la liste.</p>" : "") +
       '<p class="hint">Sources : ' + (nOff ? nOff + " événement" + (nOff > 1 ? "s" : "") + " confirmé" + (nOff > 1 ? "s" : "") + " par une page officielle, les autres viennent de Liquipedia." : "Liquipedia" + (o.officielKo ? " (la recherche des annonces officielles n'a pas abouti)" : " (aucune annonce officielle trouvée en plus)") + ".") + " Les données sont lues par une IA : vérifie les montants importants avant de décider.</p>";
     var rowHtml = function (r) {
       var c = r.c, where = c.e.lan ? (c.e.lieu || c.e.zone) : "En ligne";
-      return '<label class="wiz-item cal-item' + (r.on ? " on" : "") + '"><input type="checkbox" data-sel="' + esc(o.id) + "|" + esc(r.ev.id) + '"' + (r.on ? " checked" : "") + '><span><strong>' + esc(c.e.nom) + "</strong><small>" +
+      return '<label class="wiz-item cal-item' + (r.on ? " on" : "") + '"><input type="checkbox" data-sel="' + esc(o.id) + "|" + esc(r.ev.id) + '"' + (r.on ? " checked" : "") + '><span><strong>' + esc(c.e.nom) + "</strong>" + (memeNiveau(o, r.ev) ? "" : ' <span class="pill">' + (o.niveauComp === "challenger" ? "T1" : "T2") + "</span>") + "<small>" +
         esc([fdates(c.e.debut, c.e.fin), where, c.e.cashprize != null ? eur(c.cash) + " de cashprize" : "cashprize inconnu"].filter(Boolean).join(" · ")) + "</small>" +
         (c.e.cat && c.e.cat.source ? '<small>' + (c.e.cat.officiel ? '<span class="pill v-good">Officiel</span> ' : "") + '<a href="' + esc(c.e.cat.source) + '" target="_blank" rel="noopener noreferrer">' + esc(c.e.cat.sourceNom || "Source") + "</a></small>" : "") + "<small>Coût " + eur(c.cout) + " · gain attendu " + eur(c.gain + c.pub) + "</small></span>" +
         '<em class="' + cls(c.solde) + '">' + signed(c.solde) + "</em></label>";
     };
     h += '<div class="wiz-list">' + (kept.length ? kept.map(rowHtml).join("") : '<div class="empty"><p>Aucun événement ne rapporte plus qu\'il ne coûte avec ces hypothèses. Change le niveau de l\'équipe ci-dessous, ou coche des événements à la main.</p></div>') + "</div>";
     if (out.length) {
-      h += '<details class="more" data-det="ana-out"><summary>' + out.length + " événement" + (out.length > 1 ? "s" : "") + " écarté" + (out.length > 1 ? "s" : "") + " (ils coûtent plus qu'ils ne rapportent)</summary><div class=\"wiz-list\">" + out.map(rowHtml).join("") + "</div>" +
+      h += '<details class="more" data-det="ana-out"><summary>' + out.length + " événement" + (out.length > 1 ? "s" : "") + " écarté" + (out.length > 1 ? "s" : "") + " (autre niveau, ou ils coûtent plus qu'ils ne rapportent) : coche ceux que tu veux</summary><div class=\"wiz-list\">" + out.map(rowHtml).join("") + "</div>" +
         '<p class="hint">Si vous jouiez aussi ces ' + out.length + " événements, le bilan passerait de " + signed(oc.bilan) + " à " + signed(oc.bilan + outSolde) + ".</p></details>";
     }
     if (o.calManuel) h += '<div class="row-actions"><button class="ghost" type="button" data-act="ana-repick" data-id="' + esc(o.id) + '">Recalculer le calendrier automatiquement</button></div>';
