@@ -1211,6 +1211,30 @@ details.card.more { padding: 18px 22px; }
     });
     return { remarque: res && res.remarque, evenements: base, officiel: { fixed: fixed, added: added } };
   }
+  /* Les tournois du guide Google Sheet (calendrier 2026 du jeu) : petit appel dédié, pour ne pas dépendre du gros prompt Liquipedia. */
+  function anaGuide(o, w) {
+    var chal = o.niveauComp === "challenger";
+    var prompt = "Tu aides une structure esport à préparer une saison. Date du jour : " + w.today + ".\nJeu : " + o.jeu + ".\nNiveau visé : " + nivLabel(o.niveauComp || "pro") + ".\n" +
+      "Ta SEULE source est le guide de référence (Google Sheet) donné plus haut. Liste les tournois de son calendrier 2026 (section A) rangés sous la rubrique " + (chal ? "CHALLENGER" : "PRO") + ", y compris les ligues nationales et régionales. Une ligne du guide qui regroupe plusieurs étapes (Stage 1, 2, 3) donne un événement par étape.\n" +
+      "Pour chaque événement : nom, dates (AAAA-MM-JJ, année 2026 si elle n'est pas écrite), lieu, zone, cashprize total et devise (nombre, sans symbole), qualification, region. Règles : n'invente rien ; mets null quand le guide ne le dit pas (« non lu » = null). Un tournoi en ligne a zone « En ligne » et lan false ; pour un tournoi en ligne renseigne « region » (« Europe » pour la zone EMEA ou l'Europe, « Mondial » si ouvert à toutes les régions). Si le guide donne un prize pool par étape, utilise-le pour chaque étape.\n" +
+      "Réponds uniquement par un objet JSON de cette forme : " + SCENE_FIELDS;
+    return state.sample.json(prompt, { modelTier: "default", cache: false });
+  }
+  function mergeGuide(res, g) {
+    var base = (res && Array.isArray(res.evenements) ? res.evenements : []).map(normSceneEvent).filter(Boolean), n = 0;
+    (g && Array.isArray(g.evenements) ? g.evenements : []).map(normSceneEvent).filter(Boolean).forEach(function (ge) {
+      var hit = null, kg = evKey(ge.nom);
+      base.forEach(function (be) {
+        if (hit) return;
+        var kb = evKey(be.nom), gap = be.debut && ge.debut ? Math.abs(Date.parse(be.debut) - Date.parse(ge.debut)) : null, near = gap != null && gap <= 4 * 864e5;
+        /* les étapes d'une même ligue (Stage 1, 2, 3) ont le même nom : seule la date les distingue */
+        if ((kb === kg && (gap == null || gap <= 10 * 864e5)) || (near && kg && kb && (kb.indexOf(kg) >= 0 || kg.indexOf(kb) >= 0))) hit = be;
+      });
+      if (hit) { if (hit.cashprize == null && ge.cashprize != null) { hit.cashprize = ge.cashprize; hit.devise = ge.devise; } }
+      else { base.push(ge); n++; }
+    });
+    return { remarque: res && res.remarque, evenements: base, officiel: res && res.officiel, guide: n };
+  }
   function anaResearch(o, w, base) {
     var prompt = "Tu es analyste esport. Date du jour : " + w.today + ". Jeu : " + o.jeu + ".\n" +
       "Fais une recherche web pour trouver ce que l'ÉDITEUR du jeu et ses organisateurs officiels annoncent pour la saison esport entre " + w.from + " et " + w.to + " : calendrier, dates, cashprize (prize pool), lieux, LAN et finales, formats, et comment une équipe peut s'y qualifier.\n" +
@@ -1243,6 +1267,7 @@ details.card.more { padding: 18px 22px; }
     render();
     /* La recherche officielle démarre tout de suite, pendant que les pages Liquipedia se lisent (elles attendent 30 s entre deux pages). */
     var researchP = anaResearch(o, w, []).then(function (off) { return { off: off }; }, function () { return { off: null }; });
+    var guideP = anaGuide(o, w).then(function (g) { return g; }, function () { return null; });
     var texts = [], i = 0, tiers = TIERS[o.niveauComp] || TIERS.pro;
     function nextPage() {
       if (i >= tiers.length) return Promise.resolve();
@@ -1266,6 +1291,8 @@ details.card.more { padding: 18px 22px; }
       var list = res && Array.isArray(res.evenements) ? res.evenements.map(normSceneEvent).filter(Boolean) : [];
       ana.msg = "J'attends les annonces officielles de l'éditeur…"; ana.pct = 90; anaDraw();
       return researchP.then(function (r) { if (!r.off) { o.officielKo = true; return res; } return mergeOfficial(res, r.off); });
+    }).then(function (res) {
+      return guideP.then(function (g) { return g ? mergeGuide(res, g) : res; });
     }).then(function (res) {
       return ingestScene(o, res, "https://liquipedia.net/" + wiki + "/").then(function (r) { o.officielN = res && res.officiel ? res.officiel.fixed + res.officiel.added : 0; return r; });
     }).then(function () {
