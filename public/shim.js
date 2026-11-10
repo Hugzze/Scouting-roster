@@ -114,7 +114,39 @@
     if (m) { try { return JSON.parse(m[1]); } catch (e) {} }
     var a = t.search(/[\[{]/), b = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
     if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch (e) {} }
+    if (a >= 0) { try { return JSON.parse(repairJson(t.slice(a))); } catch (e) {} }
     throw null;
+  }
+  /* répare un JSON abîmé : guillemets non échappés, retours à la ligne, virgules finales, réponse coupée */
+  function repairJson(src) {
+    var out = "", stack = [], inStr = false, i, ch, j, nx;
+    for (i = 0; i < src.length; i++) {
+      ch = src[i];
+      if (inStr) {
+        if (ch === "\\") { out += ch + (src[i + 1] || ""); i++; continue; }
+        if (ch === '"') {
+          j = i + 1; while (j < src.length && /\s/.test(src[j])) j++;
+          nx = src[j];
+          if (j >= src.length || nx === "," || nx === ":" || nx === "}" || nx === "]") { inStr = false; out += ch; }
+          else out += '\\"';
+          continue;
+        }
+        if (ch === "\n") { out += "\\n"; continue; }
+        if (ch === "\r") continue;
+        if (ch === "\t") { out += "\\t"; continue; }
+        out += ch; continue;
+      }
+      if (ch === '"') { inStr = true; out += ch; continue; }
+      if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
+      else if (ch === "}" || ch === "]") { if (stack.length) stack.pop(); }
+      out += ch;
+      if (!stack.length && (ch === "}" || ch === "]")) break;
+    }
+    if (inStr) out += '"';
+    out = out.replace(/[\s,:]+$/, "");
+    out = out.replace(/,\s*([}\]])/g, "$1");
+    while (stack.length) out += stack.pop();
+    return out.replace(/,\s*([}\]])/g, "$1");
   }
   function blobToB64(blob) {
     return new Promise(function (resolve, reject) {
