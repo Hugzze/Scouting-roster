@@ -162,6 +162,7 @@ select.cell.place { min-width: 190px; }
 .scen-h { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; width: 100%; font-size: 13px; }
 .scen-n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .scen-sub { font-size: 12px; color: var(--muted); }
+.cible-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
 .scen-plan { display: grid; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 6px; border-top: 1px solid var(--line); padding-top: 8px; width: 100%; }
 .scen-plan strong { color: var(--fg); display: block; }
 .scen-plan ul { margin: 2px 0 0; padding-left: 16px; }
@@ -1321,15 +1322,16 @@ details.card.more { padding: 18px 22px; }
     if (!o.topOk) needs.push("niveau");
     if (num(o.salairesMois) == null) needs.push("salaires");
     if (hasLan && !o.lanPrise) needs.push("lan");
-    var prov = needs.length > 0;
-    if (prov) {
-      h += '<section class="card ask" aria-labelledby="h-ask"><h2 id="h-ask" class="section-title">Avant de conclure</h2><p class="hint">Il me manque ' + (needs.length > 1 ? "des informations" : "une information") + " pour te donner un verdict fiable. Tant que ce n'est pas rempli, l'analyse reste provisoire.</p>";
+    var prov = false;
+    h += cibleHtml(x, ctx);
+    if (needs.length) {
+      h += '<details class="more ask" data-det="ana-ask"><summary>Affiner le résultat (facultatif)</summary><p class="hint">Par défaut : équipe autour de la ' + (o.niveauComp === "challenger" ? "16e" : "8e") + " place, aucun salaire, déplacements en LAN payés par la structure. Réponds pour remplacer ces hypothèses.</p>";
       if (needs.indexOf("comp") >= 0) h += '<label class="field"><span>Niveau de compétition visé</span><select data-k="' + k("niveauComp") + '" class="need"><option value="">Choisir…</option>' + NIVEAUX.map(function (n) { return '<option value="' + n[0] + '">' + esc(n[1]) + "</option>"; }).join("") + "</select><small>Pro (T1) ou Challenger (T2) : le site relit les tournois qui correspondent.</small></label>";
       if (needs.indexOf("niveau") >= 0) h += '<label class="field"><span>À quelle place l\'équipe finit-elle en général ?</span><select data-k="' + k("topMoyen") + '" class="need"><option value="">Choisir…</option>' + TOP_CHOICES.map(function (t) { return '<option value="' + t[0] + '">' + esc(t[1]) + "</option>"; }).join("") + "</select></label>";
       if (needs.indexOf("salaires") >= 0) h += '<div class="field"><span>Les joueurs sont-ils salariés par la structure ?</span><div class="row-actions"><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="sal0">Non, pas de salaires</button></div>' +
         '<input type="text" inputmode="decimal" data-k="' + k("salairesMois") + '" value="" placeholder="Oui : total des salaires par mois (€)" aria-label="Salaires par mois"></div>';
       if (needs.indexOf("lan") >= 0) h += '<div class="field"><span>Qui paie les déplacements en LAN (voyage, hôtel, repas) ?</span><div class="row-actions"><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-structure">La structure</button><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-moitie">Moitié-moitié</button><button class="ghost" type="button" data-act="ana-ans" data-id="' + esc(o.id) + '" data-q="lan-joueurs">Les joueurs</button></div></div>';
-      h += "</section>";
+      h += "</details>";
     }
     h += '<section class="verdict ' + (prov ? "" : vd.v === "good" ? "good" : vd.v === "bad" ? "bad" : "") + '" aria-label="Verdict"><div class="verdict-top"><div><div class="sub-title">' + (prov ? "Analyse provisoire · scénario bon" : "Verdict sur la saison · scénario bon") + '</div><div class="verdict-label">' + esc(prov ? "Provisoire : à confirmer" : vd.label) + "</div></div>" +
       '<div class="kpis" style="flex:1 1 420px"><div class="kpi"><span>Ça coûte</span><strong>' + eur(oc.cout) + '</strong></div><div class="kpi"><span>Ça rapporte</span><strong>' + eur(oc.ret) + '</strong></div><div class="kpi"><span>Bilan</span><strong class="' + cls(oc.bilan) + '">' + signed(oc.bilan) + "</strong></div></div></div>" +
@@ -1468,6 +1470,31 @@ details.card.more { padding: 18px 22px; }
 
   /* --- Vue opportunité --- */
   function detOpen(key) { return state.det[key] !== false; }
+  /* Ce qu'il faut chercher pour qu'une opportunité soit rentable ou à l'équilibre (argent ou visibilité). */
+  function cibleHtml(x, ctx) {
+    var o = x.opp, oc = x.oc, r = ctx.r, tops = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
+    if (!oc.rows.length) return "";
+    var okFin = null, okVis = null;
+    tops.forEach(function (t) {
+      var oct = calcOpp(Object.assign({}, o, { topMoyen: t }), r, "real");
+      if (oct.bilanFin >= 0) okFin = t;
+      if (oct.bilan >= 0) okVis = t;
+    });
+    var li = [];
+    li.push("<li><strong>Rentable en argent seul</strong> : " + (okFin != null ? "finir dans le top " + okFin + " ou mieux sur les événements retenus." : "pas atteignable avec ce calendrier, même en finissant 1er.") + "</li>");
+    var gap = oc.cout - oc.retFin;
+    if (gap <= 0) li.push("<li><strong>Visibilité</strong> : pas nécessaire au niveau actuel, les gains couvrent déjà les coûts.</li>");
+    else {
+      var fol = r.coutFollower > 0 ? Math.ceil(gap / r.coutFollower / 100) * 100 : null;
+      li.push("<li><strong>À l'équilibre avec la visibilité</strong> : " + (okVis != null ? "top " + okVis + " ou mieux" : "pas atteignable par les seuls résultats") + (fol != null ? ", ou environ " + int(fol) + " followers gagnés pour combler l'écart de " + eur(gap) + " au niveau actuel." : ".") + "</li>");
+    }
+    var capa = oc.bilan + oc.sal, mois = n0(o.mois);
+    li.push("<li><strong>Salaires</strong> : " + (capa <= 0 ? "aucun salaire possible au niveau actuel sans perdre d'argent." : "jusqu'à " + eur(Math.floor(capa / (mois > 0 ? mois : 1) / 10) * 10) + (mois > 0 ? " par mois" : " sur la saison") + " pour toute l'équipe.") + "</li>");
+    var best = oc.rows.filter(function (q) { return !q.c.skip; }).slice().sort(function (a, b) { return b.c.solde - a.c.solde; }).slice(0, 3);
+    if (best.length) li.push("<li><strong>Événements à viser en priorité</strong> : " + best.map(function (q) { return esc(q.c.e.nom); }).join(", ") + ".</li>");
+    li.push("<li><strong>Budget à prévoir</strong> : " + eur(oc.cout) + " pour la saison.</li>");
+    return '<section class="card cible"><div class="sub-title">Ce qu\'il faut chercher pour que ce soit rentable</div><ul class="cible-list">' + li.join("") + "</ul></section>";
+  }
   function scenPlanHtml(x, s) {
     var oc = x.sc[s[0]], o = x.opp, top = oc.T[s[0]];
     var capa = oc.bilan + oc.sal, mois = n0(o.mois), salTxt;
