@@ -291,8 +291,15 @@ async function askClaude(env, prompt, images, opts) {
     if (tries === 6 && body.tools) body.tool_choice = { type: "none" };
     var res;
     try {
-      res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(opts.search ? 110000 : 100000) });
+      res = await fetch(base + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body), signal: AbortSignal.timeout(body.tools ? 55000 : 60000) });
     } catch (e) {
+      /* recherche trop longue : on repart sans recherche web plutôt que de laisser le navigateur abandonner */
+      if (body.tools && e && e.name === "TimeoutError") {
+        delete body.tools; delete body.tool_choice; texts = [];
+        body.model = env.ANTHROPIC_MODEL || "claude-haiku-5-5";
+        body.messages = [{ role: "user", content: content.concat([{ type: "text", text: "Réponds directement par le JSON demandé, sans aucune recherche web : appuie-toi uniquement sur les informations ci-dessus et mets « non lu » quand tu ne sais pas." }]) }];
+        continue;
+      }
       var why = e && e.name === "TimeoutError" ? "délai dépassé" : String((e && e.message) || e).slice(0, 120);
       throw { status: 502, code: "upstream_error", message: "Claude ne répond pas (" + why + "). Réessaie dans un instant." };
     }
@@ -310,6 +317,7 @@ async function askClaude(env, prompt, images, opts) {
     /* tout le budget est parti dans la recherche : on repart sans recherche web, avec le guide et la lecture seules */
     if (stop === "max_tokens" && body.tools && !texts.join("").trim()) {
       delete body.tools; delete body.tool_choice; texts = [];
+      body.model = env.ANTHROPIC_MODEL || "claude-haiku-5-5";
       body.messages = [{ role: "user", content: content.concat([{ type: "text", text: "Réponds directement par le JSON demandé, sans aucune recherche web : appuie-toi uniquement sur les informations ci-dessus et mets « non lu » quand tu ne sais pas." }]) }];
       continue;
     }
