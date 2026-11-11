@@ -20,6 +20,7 @@
     return fetch(path, { method: opts.method || "GET", credentials: "same-origin", headers: opts.body ? { "content-type": "application/json" } : undefined, body: opts.body })
       .then(function (r) {
         return r.json().catch(function () { return null; }).then(function (j) {
+          if (r.ok && j && j.__err) throw { code: codeFor(j.status || 502, { error: j.__err }), message: j.message || "Erreur" };
           if (r.ok) return j;
           if (r.status === 401) { setTimeout(function () { location.reload(); }, 800); }
           var e = { code: codeFor(r.status, j), message: (j && j.message) || "Erreur " + r.status };
