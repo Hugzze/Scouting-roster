@@ -543,11 +543,25 @@ async function handleApi(request, env, url) {
     var cap = Number(env.DAILY_READS || 200), capUser = Number(env.DAILY_READS_PER_USER || 20);
     if ((await countUse(env, "ai:" + me.uid)) >= capUser) return fail(429, "rate_limited", "Tu as atteint ta limite de " + capUser + " lectures par jour. Réessaie demain.");
     if ((await countUse(env, "ai")) >= cap) return fail(429, "rate_limited", "Limite quotidienne de lectures atteinte pour tous les comptes (" + cap + "). Réessaie demain.");
-    try {
-      var r = await askModel(env, await withGuide(env, prompt), imgs, { search: b2.search === true });
-      await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
-      return json(r);
-    } catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
+    /* réponse en flux : un espace toutes les 8 s garde la connexion ouverte (iPhone, proxys) pendant que Claude travaille */
+    var enc = new TextEncoder();
+    var stream = new ReadableStream({
+      async start(ctl) {
+        var tick = setInterval(function () { try { ctl.enqueue(enc.encode(" ")); } catch (e) {} }, 8000);
+        var out;
+        try {
+          ctl.enqueue(enc.encode(" "));
+          var r = await askModel(env, await withGuide(env, prompt), imgs, { search: b2.search === true });
+          await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
+          out = r;
+        } catch (e) {
+          out = e && e.status ? { __err: e.code || "upstream_error", status: e.status, message: e.message } : { __err: "upstream_error", status: 502, message: "Erreur interne du serveur pendant la lecture." };
+        }
+        clearInterval(tick);
+        try { ctl.enqueue(enc.encode(JSON.stringify(out))); ctl.close(); } catch (e) {}
+      }
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   }
 
   return fail(404, "not_found", "Introuvable.");
