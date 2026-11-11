@@ -158,6 +158,10 @@ select.cell.place { min-width: 190px; }
 .verdict .kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .scen-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .scen-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; justify-items: start; min-width: 0; }
+button.scen-card { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+.scen-card.open { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.scen-tap { font-size: 11px; }
+.scen-detail { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
 .scen-card.main { border-color: var(--gold); }
 .scen-h { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; width: 100%; font-size: 13px; }
 .scen-n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1529,26 +1533,35 @@ details.card.more { padding: 18px 22px; }
   function scenPlanHtml(x, s) {
     var oc = x.sc[s[0]], o = x.opp, top = oc.T[s[0]];
     var capa = oc.bilan + oc.sal, mois = n0(o.mois), salTxt;
-    if (capa <= 0) salTxt = "Non : sans salaire, la saison est déjà à " + signed(oc.bilan) + ".";
-    else if (mois > 0) salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / mois / 10) * 10) + " par mois pour toute l'équipe.";
-    else salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / 10) * 10) + " sur la saison (durée à renseigner pour le détail par mois).";
+    if (capa <= 0) salTxt = "Non";
+    else if (mois > 0) salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / mois / 10) * 10) + " par mois pour toute l'équipe";
+    else salTxt = "Oui, jusqu'à " + eur(Math.floor(capa / 10) * 10) + " sur la saison";
     var wins = oc.rows.filter(function (r) { return !r.c.skip && r.c.gainEq > 0; });
     wins.sort(function (a, b) { return b.c.gainEq - a.c.gainEq; });
     var list = wins.slice(0, 4).map(function (r) { return "<li>" + esc(r.c.e.nom) + " : " + esc(r.c.pl.label) + "</li>"; }).join("");
     if (wins.length > 4) list += "<li>+ " + (wins.length - 4) + " autre" + (wins.length - 4 > 1 ? "s" : "") + "</li>";
-    return '<div class="scen-plan"><div><strong>Top à atteindre</strong> ' + (top != null ? "top " + top : "à renseigner") + "</div>" +
+    return '<div class="scen-plan scen-detail"><div class="sub-title">Pour le scénario ' + esc(s[1]) + "</div>" +
+      "<div><strong>Top équipe nécessaire</strong> " + (top != null ? "top " + top : "à renseigner") + "</div>" +
       "<div><strong>Salaire</strong> " + salTxt + "</div>" +
+      "<div><strong>Investissement</strong> " + eur(oc.cout) + "</div>" +
+      '<div><strong>Résultat</strong> <span class="' + cls(oc.bilan) + '">' + signed(oc.bilan) + "</span> (retours " + eur(oc.ret) + ")</div>" +
       "<div><strong>Résultats à viser</strong>" + (list ? "<ul>" + list + "</ul>" : " aucun prix à ce niveau") + "</div></div>";
   }
   function scenCardsHtml(x, prov) {
-    return '<div class="scen-strip">' + SCEN.map(function (s) {
+    var open = state.scenOpen && x.sc[state.scenOpen] ? state.scenOpen : null, openS = null;
+    var h = '<div class="scen-strip">' + SCEN.map(function (s) {
       var oc = x.sc[s[0]], v = x.scv[s[0]].vd, top = oc.T[s[0]];
-      return '<div class="scen-card' + (s[0] === "real" ? " main" : "") + '">' +
-        '<div class="scen-h"><strong>' + s[1] + '</strong><span class="mut">' + (top != null ? "top " + top : "top ?") + "</span></div>" +
+      if (s[0] === open) openS = s;
+      var inner = '<div class="scen-h"><strong>' + s[1] + '</strong><span class="mut">' + (top != null ? "top " + top : "top ?") + "</span></div>" +
         '<div class="scen-n ' + cls(oc.bilan) + '">' + signed(oc.bilan) + "</div>" +
         '<div class="scen-sub">Coûts ' + eur(oc.cout) + " · retours " + eur(oc.ret) + "</div>" +
-        (prov ? "" : '<span class="pill v-' + v.v + '">' + esc(v.label) + "</span>" + scenPlanHtml(x, s)) + "</div>";
+        (prov ? "" : '<span class="pill v-' + v.v + '">' + esc(v.label) + '</span><span class="mut scen-tap">' + (s[0] === open ? "Masquer le détail" : "Voir les prérequis") + "</span>");
+      var c = "scen-card" + (s[0] === "real" ? " main" : "") + (s[0] === open ? " open" : "");
+      return prov ? '<div class="' + c + '">' + inner + "</div>" :
+        '<button type="button" class="' + c + '" data-act="scen-open" data-scen="' + s[0] + '" aria-expanded="' + (s[0] === open) + '">' + inner + "</button>";
     }).join("") + "</div>";
+    if (!prov && openS) h += scenPlanHtml(x, openS);
+    return h;
   }
   function jeuField(o, bare) {
     var cur = String(o.jeu || ""), known = JEUX_ESPORT.indexOf(cur) >= 0, other = state.jeuAutre === o.id || (cur && !known);
@@ -2496,6 +2509,7 @@ details.card.more { padding: 18px 22px; }
       case "close-drawer": state.drawer = null; state.confirm = null; break;
       case "del-ev": state.confirm = "del-ev:" + state.drawer.ev; break;
       case "restore-evs": var orv = findOpp(id); if (orv) { orv.exclus = []; save(); } break;
+      case "scen-open": var sk = b.getAttribute("data-scen"); state.scenOpen = state.scenOpen === sk ? null : sk; break;
       case "scen": state.scen = b.getAttribute("data-scen"); break;
       case "sel-none": state.sel[id] = {}; break;
       case "sel-past":
