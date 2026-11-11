@@ -307,6 +307,12 @@ async function askClaude(env, prompt, images, opts) {
     var blocks = data.content || [];
     texts.push(blocks.filter(function (b) { return b.type === "text"; }).map(function (b) { return b.text || ""; }).join(""));
     truncated = stop === "max_tokens";
+    /* tout le budget est parti dans la recherche : on repart sans recherche web, avec le guide et la lecture seules */
+    if (stop === "max_tokens" && body.tools && !texts.join("").trim()) {
+      delete body.tools; delete body.tool_choice; texts = [];
+      body.messages = [{ role: "user", content: content.concat([{ type: "text", text: "Réponds directement par le JSON demandé, sans aucune recherche web : appuie-toi uniquement sur les informations ci-dessus et mets « non lu » quand tu ne sais pas." }]) }];
+      continue;
+    }
     /* recherche web longue : Claude met sa réponse en pause, on lui demande de continuer */
     if (stop === "pause_turn" && blocks.length) { body.messages = body.messages.concat([{ role: "assistant", content: blocks }]); continue; }
     break;
