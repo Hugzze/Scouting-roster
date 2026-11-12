@@ -329,7 +329,19 @@ async function askClaude(env, prompt, images, opts) {
   if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Claude n'a rien renvoyé (arrêt : " + (stop || "inconnu") + "). Relance l'analyse." };
   return { text: text, truncated: truncated };
 }
-function askModel(env, prompt, images, opts) { return env.ANTHROPIC_API_KEY ? askClaude(env, prompt, images, opts) : askGemini(env, prompt, images, opts); }
+/* Gratuit d'abord : Gemini si une clé est configurée, Claude seulement en secours (ou seul si pas de clé Gemini). */
+async function askModel(env, prompt, images, opts) {
+  if (env.GEMINI_API_KEY && !env.PREFER_CLAUDE) {
+    try { return await askGemini(env, prompt, images, opts); }
+    catch (e) { if (!env.ANTHROPIC_API_KEY) throw e; }
+    return askClaude(env, prompt, images, opts);
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    try { return await askClaude(env, prompt, images, opts); }
+    catch (e) { if (!env.GEMINI_API_KEY) throw e; }
+  }
+  return askGemini(env, prompt, images, opts);
+}
 
 /* ---------- guides par jeu (Google Sheet "Banque de données Scouting Roster") ---------- */
 const GUIDE_CACHE_MS = 5 * 60 * 1000;
