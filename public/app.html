@@ -1264,14 +1264,95 @@ details.card.more { padding: 18px 22px; }
     state.ana = { id: o.id, phase: "error", msg: msg };
     render();
   }
+  /* ---- Banque de données Majin (Google Sheets) : lue en priorité, avant toute recherche ---- */
+  function bankUnk(v) { return !v || /^non\s*lu$/i.test(String(v).trim()); }
+  function bankNum(v) { var s = String(v == null ? "" : v).replace(/[\s ]/g, "").replace(",", "."); return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null; }
+  function bankIso(v) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || "").trim()); return m ? m[1] + "-" + m[2] + "-" + m[3] : null; }
+  function bankRegion(r) {
+    var s = slugify(r);
+    if (s === "europe" || s === "france" || s === "emea" || s === "eu") return "Europe";
+    if (/^(mondial|monde|global|international|worldwide)/.test(s)) return "Mondial";
+    if (s === "amerique-du-nord" || s === "na") return "Amérique du Nord";
+    if (s === "amerique-du-sud" || s === "amerique-latine" || s === "bresil") return "Amérique du Sud";
+    if (s === "amerique") return "Autre";
+    if (s === "asie" || s === "apac") return "Asie";
+    if (s === "oceanie") return "Océanie";
+    if (s === "moyen-orient" || s === "mena") return "Moyen-Orient";
+    return null;
+  }
+  function bankEvents(o, b, w) {
+    var rows = b && Array.isArray(b.rows) ? b.rows : [], out = [], chall = o.niveauComp === "challenger";
+    rows.forEach(function (r) {
+      var st = slugify(r.statut); if (st === "annule" || st === "annulee") return;
+      var niv = slugify(r.niveau), tier = String(r.tier || "").trim().toUpperCase();
+      if (chall ? !(niv === "challenger" || (niv === "amateur" && tier === "C")) : niv !== "pro") return;
+      var d1 = bankIso(r.debut), d2 = bankIso(r.fin) || d1; if (!d1) return;
+      if (d2 < w.from || d1 > w.to) return;
+      var reg = bankRegion(r.region), f = slugify(r.format), lieuOn = /en ligne|online/i.test(r.lieu || ""), unk = bankUnk(r.lieu), lan, incertain = false;
+      if (/^(lan|offline|presentiel|hybrid)/.test(f)) lan = true;
+      else if (/online|en-ligne/.test(f)) lan = false;
+      else if (lieuOn) lan = false;
+      else if (!unk) lan = true;
+      else { lan = false; incertain = true; }
+      var zone = "En ligne";
+      if (lan) zone = slugify(r.region) === "france" ? "France" : reg === "Europe" ? "Europe" : (ZONES.indexOf(reg) >= 0 && reg !== "Mondial" ? reg : "Autre");
+      var dev = String(r.devise || "").toUpperCase(); if (!DEVISES.some(function (x) { return x[0] === dev; })) dev = "USD";
+      var ev = { nom: r.nom, debut: d1, fin: d2, lieu: lan && !unk ? r.lieu : "", zone: zone, lan: lan, region: lan ? null : reg, cashprize: bankNum(r.prize), devise: dev, qualification: "Tier " + (tier || "?") + (r.niveau ? " · " + r.niveau : ""), paliers: null };
+      out.push({ ev: ev, incertain: incertain, src: String(r.source || "").slice(0, 90) });
+    });
+    out.sort(function (a, b2) { return (b2.ev.cashprize || 0) - (a.ev.cashprize || 0); });
+    return out.slice(0, 120);
+  }
+  function ingestBank(o, list, maj) {
+    var today = todayIso(), slug = canonSlug(o.jeu), chain = Promise.resolve(), ids = [], jobs = [];
+    if (!state.cat.jeux[slug]) {
+      var jd = { nom: o.jeu, slug: slug, statut: "fait", majLe: today };
+      chain = chain.then(function () { return state.db.doc("jeux/" + slug).set(jd); }).then(function () { state.catLocal.jeux[slug] = jd; state.cat.jeux[slug] = jd; });
+    }
+    list.forEach(function (x) {
+      var e = normSceneEvent(x.ev); if (!e) return;
+      var id = ("e-" + slugify(slug + "-" + e.nom + "-" + (e.debut || ""))).slice(0, 120);
+      ids.push(id);
+      var d = { jeu: slug, jeuNom: o.jeu, nom: e.nom, debut: e.debut, fin: e.fin, lieu: e.lieu, zone: e.zone, lan: e.lan, region: e.region || null, cashprize: e.cashprize, devise: e.devise, qualification: e.qualification, circuit: o.circuit || "", majLe: maj || today, banque: true, sourceNom: "Banque de données Majin" + (x.src ? " · " + x.src : "") };
+      if (x.incertain) d.formatIncertain = true;
+      if (o.niveauComp) d.niveau = o.niveauComp;
+      jobs.push({ id: id, d: d });
+    });
+    if (!jobs.length) return Promise.reject({ code: "empty", message: "Aucun événement trouvé." });
+    chain = chain.then(function () {
+      var k = 0;
+      function batch() {
+        if (k >= jobs.length) return Promise.resolve();
+        var part = jobs.slice(k, k + 8); k += 8;
+        return Promise.all(part.map(function (j) { return state.db.doc("evenements/" + j.id).set(j.d).then(function () { state.catLocal.evts[j.id] = j.d; state.cat.evts[j.id] = j.d; }); })).then(batch);
+      }
+      return batch();
+    });
+    return chain.then(function () { ids.forEach(function (id) { addCatToOpp(o, id); }); save(); return { n: ids.length }; });
+  }
   function anaRun(o) {
     if (state.ana && state.ana.phase === "reading") return;
     var wiki = wikiFor(o.jeu), w = anaWindow();
     var ana = state.ana = { id: o.id, phase: "reading", msg: "Je cherche les tournois de " + o.jeu + "…", pct: 4 };
-    state.flash = null; o.officielKo = false; o.officielN = 0;
-    if (!state.reader || !state.sample) { anaFail(o, "La lecture automatique n'est pas disponible pour l'instant. Recharge la page, ou ajoute un lien, du texte ou une photo plus bas."); return; }
-    if (!wiki) { anaFail(o, "Je n'ai pas encore de source automatique pour « " + o.jeu + " ». Ajoute le lien de la scène, du texte ou une photo plus bas."); return; }
+    state.flash = null; o.officielKo = false; o.officielN = 0; o.banqueMaj = null;
+    var canWeb = !!(state.reader && state.sample && wiki);
+    if (!state.bank && !canWeb) {
+      anaFail(o, !wiki && state.reader ? "Je n'ai pas encore de source automatique pour « " + o.jeu + " ». Ajoute le lien de la scène, du texte ou une photo plus bas." : "La lecture automatique n'est pas disponible pour l'instant. Recharge la page, ou ajoute un lien, du texte ou une photo plus bas."); return;
+    }
     render();
+    var viaBank = state.bank ? state.bank(o.jeu).then(function (b) { return { list: bankEvents(o, b, w), maj: b && b.maj }; }, function () { return null; }) : Promise.resolve(null);
+    viaBank.then(function (r) {
+      if (r && r.list.length >= 1) {
+        ana.msg = "Je range les " + r.list.length + " tournois de la banque de données…"; ana.pct = 50; anaDraw();
+        return ingestBank(o, r.list, r.maj).then(function () { o.banqueMaj = r.maj || todayIso(); afterIngest(o); });
+      }
+      if (!canWeb) throw { code: "nosource" };
+      return anaRunWeb(o, w, ana, wiki);
+    }).catch(function (e) {
+      anaFail(o, e && e.code === "nosource" ? (!wiki ? "Je n'ai pas encore de source automatique pour « " + o.jeu + " ». Ajoute le lien de la scène, du texte ou une photo plus bas." : "La lecture automatique n'est pas disponible pour l'instant. Recharge la page, ou ajoute un lien, du texte ou une photo plus bas.") : e && e.code === "empty" ? "Je n'ai trouvé aucun tournoi pour ce jeu sur la période. Ajoute le lien de la scène, du texte ou une photo plus bas." : sceneErrMsg(e));
+    });
+  }
+  function anaRunWeb(o, w, ana, wiki) {
     /* La recherche officielle démarre tout de suite, pendant que les pages Liquipedia se lisent (elles attendent 30 s entre deux pages). */
     var researchP = anaResearch(o, w, []).then(function (off) { return { off: off }; }, function () { return { off: null }; });
     o.guideN = null; o.guideKo = "";
@@ -1286,7 +1367,7 @@ details.card.more { padding: 18px 22px; }
         i++; return nextPage();
       });
     }
-    nextPage().then(function () {
+    return nextPage().then(function () {
       if (!texts.length) throw { code: "unreadable", message: "Aucune page de tournois lisible pour ce jeu." };
       ana.msg = "Je classe les événements et je calcule…"; ana.pct = 82; anaDraw();
       var prompt = "Tu aides une structure esport à préparer une saison. Date du jour : " + w.today + ".\n" +
@@ -1305,8 +1386,6 @@ details.card.more { padding: 18px 22px; }
       return ingestScene(o, res, "https://liquipedia.net/" + wiki + "/").then(function (r) { o.officielN = res && res.officiel ? res.officiel.fixed + res.officiel.added : 0; return r; });
     }).then(function () {
       afterIngest(o);
-    }).catch(function (e) {
-      anaFail(o, e && e.code === "empty" ? "Je n'ai trouvé aucun tournoi pour ce jeu sur la période. Ajoute le lien de la scène, du texte ou une photo plus bas." : sceneErrMsg(e));
     });
   }
   function afterIngest(o) {
@@ -1346,6 +1425,7 @@ details.card.more { padding: 18px 22px; }
         '<div class="row-actions"><button class="danger" type="button" data-act="del-opp-yes" data-id="' + esc(o.id) + '">Supprimer cette analyse</button></div>';
     }
     var oc = x.oc, vd = x.vd, fi = x.fi;
+    if (o.banqueMaj) h += '<p class="hint">Tournois lus dans la banque de données Majin (copie du ' + esc(fdate(o.banqueMaj)) + ").</p>";
     if (sc.hors) h += '<p class="hint">' + sc.hors + " tournoi" + (sc.hors > 1 ? "s" : "") + " en ligne réservé" + (sc.hors > 1 ? "s" : "") + " à une autre région (hors EUW) " + (sc.hors > 1 ? "ont été écartés" : "a été écarté") + ".</p>";
     var rows = sc.list.map(function (ev) { return { ev: ev, c: calcEv(o, ev, ctx.r, "real", oc.T), on: joueEv(o, ev.id) }; });
     rows.sort(function (a, b) { var p = a.c.e.debut || "9999", q = b.c.e.debut || "9999"; return p < q ? -1 : p > q ? 1 : 0; });
@@ -1386,7 +1466,7 @@ details.card.more { padding: 18px 22px; }
       var c = r.c, where = c.e.lan ? (c.e.lieu || c.e.zone) : "En ligne";
       return '<label class="wiz-item cal-item' + (r.on ? " on" : "") + '"><input type="checkbox" data-sel="' + esc(o.id) + "|" + esc(r.ev.id) + '"' + (r.on ? " checked" : "") + '><span><strong>' + esc(c.e.nom) + "</strong>" + (memeNiveau(o, r.ev) ? "" : ' <span class="pill">' + (o.niveauComp === "challenger" ? "T1" : "T2") + "</span>") + "<small>" +
         esc([fdates(c.e.debut, c.e.fin), where, c.e.cashprize != null ? eur(c.cash) + " de cashprize" : "cashprize inconnu"].filter(Boolean).join(" · ")) + "</small>" +
-        (c.e.cat && c.e.cat.source ? '<small>' + (c.e.cat.officiel ? '<span class="pill v-good">Officiel</span> ' : "") + '<a href="' + esc(c.e.cat.source) + '" target="_blank" rel="noopener noreferrer">' + esc(c.e.cat.sourceNom || "Source") + "</a></small>" : "") + "<small>Coût " + eur(c.cout) + " · gain attendu " + eur(c.gain + c.pub) + "</small></span>" +
+        (c.e.cat && c.e.cat.banque ? '<small><span class="pill">Banque Majin</span>' + (c.e.cat.formatIncertain ? ' <span class="pill v-mid">Format non précisé</span>' : "") + "</small>" : "") + (c.e.cat && c.e.cat.source ? '<small>' + (c.e.cat.officiel ? '<span class="pill v-good">Officiel</span> ' : "") + '<a href="' + esc(c.e.cat.source) + '" target="_blank" rel="noopener noreferrer">' + esc(c.e.cat.sourceNom || "Source") + "</a></small>" : "") + "<small>Coût " + eur(c.cout) + " · gain attendu " + eur(c.gain + c.pub) + "</small></span>" +
         '<em class="' + cls(c.solde) + '">' + signed(c.solde) + "</em></label>";
     };
     h += '<div class="wiz-list">' + (kept.length ? kept.map(rowHtml).join("") : '<div class="empty"><p>Aucun événement ne rapporte plus qu\'il ne coûte avec ces hypothèses. Change le niveau de l\'équipe ci-dessous, ou coche des événements à la main.</p></div>') + "</div>";
@@ -2571,6 +2651,7 @@ details.card.more { padding: 18px 22px; }
     var C = window.__SR_CLAUDE || window.claude;
     if (C && C.use) {
       C.use("pageReader").then(function (rd) { state.reader = typeof rd === "function" ? rd : null; requestRender(); }).catch(function () {});
+      C.use("bankReader").then(function (rd) { state.bank = typeof rd === "function" ? rd : null; }).catch(function () {});
       C.use("sample").then(function (smp) {
         state.sample = smp || null;
         if (smp && smp.limits) smp.limits().then(function (l) { state.sampleImg = l && l.images ? l.images : null; requestRender(); }).catch(function () {});

@@ -229,6 +229,57 @@ async function readPage(rawUrl, env, years) {
   return { text: keepYears(full, years), source: out.source };
 }
 
+/* ---------- banque de données (Google Sheets lu en CSV) ---------- */
+const BANK_CACHE_MS = 30 * 60 * 1000;
+function parseBankCsv(text) {
+  var rows = [], row = [], f = "", q = false;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n") { row.push(f); rows.push(row); row = []; f = ""; }
+    else if (c !== "\r") f += c;
+  }
+  if (f.length || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+function bankPlain(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+const BANK_KEYS = { jeu: "jeu", tournoi: "nom", niveau: "niveau", tier: "tier", region: "region", format: "format", lieu: "lieu", debut: "debut", fin: "fin", "prize pool": "prize", devise: "devise", "frais d inscription": "frais", gagnant: "gagnant", statut: "statut", source: "source" };
+async function readBank(env, jeu) {
+  var id = String(env.BANK_SHEET_ID || env.GUIDE_SHEET_ID || "").trim();
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(id)) throw { status: 503, code: "not_configured", message: "La banque de données n'est pas connectée (identifiant du Sheet manquant sur le serveur)." };
+  var tab = String(env.BANK_TAB || "Tournois").slice(0, 60);
+  var key = "bank:" + id + ":" + tab;
+  var c = await env.DB.prepare("SELECT text, fetched_at FROM page_cache WHERE url=?").bind(key).first();
+  var csv = null, at = 0;
+  if (c && Date.now() - c.fetched_at < BANK_CACHE_MS) { csv = c.text; at = c.fetched_at; }
+  else {
+    try {
+      var res = await fetch((env.BANK_BASE_URL || "https://docs.google.com") + "/spreadsheets/d/" + encodeURIComponent(id) + "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(tab), { redirect: "follow", headers: { "user-agent": "ScoutingRoster/1.0" }, signal: AbortSignal.timeout(25000) });
+      var txt = res.ok ? await res.text() : "";
+      if (res.ok && /^﻿?"?Jeu"?,/.test(txt)) {
+        csv = txt; at = Date.now();
+        if (txt.length < 1800000) await env.DB.prepare("INSERT INTO page_cache(url,text,source,fetched_at) VALUES(?,?,?,?) ON CONFLICT(url) DO UPDATE SET text=excluded.text, source=excluded.source, fetched_at=excluded.fetched_at").bind(key, txt, "bank", at).run();
+      } else if (c) { csv = c.text; at = c.fetched_at; }
+      else throw { status: 502, code: "upstream_error", message: res.ok ? "La banque de données n'est pas lisible : le Sheet doit être partagé en lecture pour toute personne disposant du lien." : "La banque de données ne répond pas (" + res.status + ")." };
+    } catch (e) {
+      if (e && e.status) throw e;
+      if (c) { csv = c.text; at = c.fetched_at; } else throw { status: 502, code: "upstream_error", message: "La banque de données ne répond pas." };
+    }
+  }
+  var rows = parseBankCsv(csv.replace(/^﻿/, ""));
+  var head = (rows.shift() || []).map(function (h) { return BANK_KEYS[bankPlain(h)] || null; });
+  var want = bankPlain(jeu), out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i], o = {};
+    for (var j = 0; j < head.length; j++) if (head[j]) o[head[j]] = (r[j] || "").trim();
+    if (o.jeu && bankPlain(o.jeu) === want && o.nom) out.push(o);
+  }
+  return { rows: out, maj: new Date(at).toISOString().slice(0, 10), total: rows.length };
+}
+
 /* ---------- lecture par Gemini ---------- */
 async function askGemini(env, prompt, images, opts) {
   opts = opts || {};
@@ -528,6 +579,11 @@ async function handleApi(request, env, url) {
       return json({ ok: true });
     }
     return fail(405, "bad_request", "Méthode non autorisée.");
+  }
+
+  if (path === "/api/bank" && method === "GET") {
+    try { return json(await readBank(env, url.searchParams.get("jeu") || "")); }
+    catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
   }
 
   if (path === "/api/page" && method === "GET") {
