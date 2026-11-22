@@ -247,10 +247,11 @@ function parseBankCsv(text) {
 }
 function bankPlain(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
 const BANK_KEYS = { jeu: "jeu", tournoi: "nom", niveau: "niveau", tier: "tier", region: "region", format: "format", lieu: "lieu", debut: "debut", fin: "fin", "prize pool": "prize", devise: "devise", "frais d inscription": "frais", gagnant: "gagnant", statut: "statut", source: "source" };
-async function readBank(env, jeu) {
+const VIS_KEYS = { jeu: "jeu", tournoi: "nom", saison: "saison", niveau: "niveau", region: "region", "peak viewers": "peak", "moyenne viewers": "moy", "heures regardees": "heures", "part co streams": "cos", "co streamers principaux": "costreamers", "source donnee d origine": "origine", "lien source": "lien", remarque: "remarque", "date de lecture": "lu" };
+async function readBank(env, jeu, vis) {
   var id = String(env.BANK_SHEET_ID || env.GUIDE_SHEET_ID || "").trim();
   if (!/^[A-Za-z0-9_-]{20,}$/.test(id)) throw { status: 503, code: "not_configured", message: "La banque de données n'est pas connectée (identifiant du Sheet manquant sur le serveur)." };
-  var tab = String(env.BANK_TAB || "Tournois").slice(0, 60);
+  var tab = String(vis ? (env.VIS_TAB || "Visibilité") : (env.BANK_TAB || "Tournois")).slice(0, 60);
   var key = "bank:" + id + ":" + tab;
   var c = await env.DB.prepare("SELECT text, fetched_at FROM page_cache WHERE url=?").bind(key).first();
   var csv = null, at = 0;
@@ -270,12 +271,12 @@ async function readBank(env, jeu) {
     }
   }
   var rows = parseBankCsv(csv.replace(/^﻿/, ""));
-  var head = (rows.shift() || []).map(function (h) { return BANK_KEYS[bankPlain(h)] || null; });
+  var head = (rows.shift() || []).map(function (h) { return (vis ? VIS_KEYS : BANK_KEYS)[bankPlain(h)] || null; });
   var want = bankPlain(jeu), out = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i], o = {};
     for (var j = 0; j < head.length; j++) if (head[j]) o[head[j]] = (r[j] || "").trim();
-    if (o.jeu && bankPlain(o.jeu) === want && o.nom) out.push(o);
+    if (o.jeu && (bankPlain(o.jeu) === want || (vis && bankPlain(o.jeu) === "multi jeux")) && o.nom) out.push(o);
   }
   return { rows: out, maj: new Date(at).toISOString().slice(0, 10), total: rows.length };
 }
@@ -583,6 +584,11 @@ async function handleApi(request, env, url) {
 
   if (path === "/api/bank" && method === "GET") {
     try { return json(await readBank(env, url.searchParams.get("jeu") || "")); }
+    catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
+  }
+
+  if (path === "/api/visibilite" && method === "GET") {
+    try { return json(await readBank(env, url.searchParams.get("jeu") || "", true)); }
     catch (e) { if (e && e.status) return fail(e.status, e.code, e.message); throw e; }
   }
 

@@ -186,7 +186,8 @@
   function pageReader(url, opts) { return api("/api/page?url=" + encodeURIComponent(url) + (opts && opts.years ? "&years=" + encodeURIComponent(opts.years) : "")); }
 
   function bankReader(jeu) { return api("/api/bank?jeu=" + encodeURIComponent(jeu)); }
-  var caps = { db: db, user: user, sample: sample, pageReader: pageReader, bankReader: bankReader };
+  function visReader(jeu) { return api("/api/visibilite?jeu=" + encodeURIComponent(jeu)); }
+  var caps = { db: db, user: user, sample: sample, pageReader: pageReader, bankReader: bankReader, visReader: visReader };
   window.claude = {
     use: function (name) {
       if (!Object.prototype.hasOwnProperty.call(caps, name)) return Promise.resolve(null);

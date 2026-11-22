@@ -460,6 +460,7 @@ details.card.more { padding: 18px 22px; }
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" type="button" data-act="tab" data-tab="club" id="tab-club">Accueil</button>
     <button class="tab" role="tab" type="button" data-act="tab" data-tab="catalogue" id="tab-catalogue">Catalogue d'événements</button>
+    <button class="tab" role="tab" type="button" data-act="tab" data-tab="visibilite" id="tab-visibilite">Visibilité</button>
     <button class="tab" role="tab" type="button" data-act="tab" data-tab="reglages" id="tab-reglages">Paramètres</button>
   </nav>
   <main id="view" class="view" aria-live="polite"></main>
@@ -1029,11 +1030,12 @@ details.card.more { padding: 18px 22px; }
     try { if (key && a.selectionStart != null) sel = [a.selectionStart, a.selectionEnd]; } catch (e) {}
     var ctx = computeAll();
     renderStatus();
-    ["club", "catalogue", "reglages"].forEach(function (t) {
+    ["club", "catalogue", "visibilite", "reglages"].forEach(function (t) {
       $("tab-" + t).setAttribute("aria-selected", state.tab === t ? "true" : "false");
     });
     var html;
     if (state.tab === "catalogue") html = viewCatalogue(ctx);
+    else if (state.tab === "visibilite") html = viewVisibilite(ctx);
     else if (state.tab === "reglages") html = viewReglages(ctx);
     else if (state.oppId && findOpp(state.oppId)) html = state.detail ? viewOpp(ctx, state.oppId) : viewAnalysis(ctx, state.oppId);
     else { state.oppId = null; html = viewClub(ctx); }
@@ -1964,6 +1966,51 @@ details.card.more { padding: 18px 22px; }
   }
 
   /* --- Catalogue --- */
+  /* ---------- visibilité des scènes (onglet « Visibilité » du Sheet) ---------- */
+  var VIS_JEUX = ["Rainbow Six Siege", "Valorant", "Apex Legends", "League of Legends", "Counter-Strike 2", "Call of Duty", "Rocket League", "Fortnite", "Halo"];
+  function visNum(v) { var n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isFinite(n) ? n : null; }
+  function visFmt(n) { return n == null ? "non publié" : Math.round(n).toLocaleString("fr-FR"); }
+  function visLoad(jeu) {
+    state.visCache = state.visCache || {};
+    if (!jeu || state.visCache[jeu] || !state.vis) { if (!state.vis) { state.visCache[jeu] = { err: "La lecture de la banque n'est pas disponible ici." }; } return requestRender(); }
+    state.visCache[jeu] = { loading: true };
+    state.vis(jeu).then(function (r) { state.visCache[jeu] = { rows: (r && r.rows) || [], maj: r && r.maj }; requestRender(); },
+      function (e) { state.visCache[jeu] = { err: (e && e.message) || "Lecture impossible." }; requestRender(); });
+    requestRender();
+  }
+  function visImpact(rows) {
+    var pro = rows.filter(function (r) { return visNum(r.moy) != null; });
+    var peaks = rows.map(function (r) { return visNum(r.peak); }).filter(function (x) { return x != null; });
+    var cos = rows.map(function (r) { return visNum(r.cos); }).filter(function (x) { return x != null; });
+    if (!peaks.length && !pro.length) return "";
+    var t = '<div class="sub-title">Ce que ça peut représenter pour le club</div><ul class="hint">';
+    if (peaks.length) t += "<li>Meilleur pic relevé : " + visFmt(Math.max.apply(null, peaks)) + " spectateurs simultanés. C'est l'ordre de grandeur de l'audience qu'une équipe en finale peut toucher en direct.</li>";
+    if (pro.length) { var m = Math.max.apply(null, pro.map(function (r) { return visNum(r.moy); })); t += "<li>Audience moyenne la plus haute : " + visFmt(m) + " spectateurs. " + (m >= 50000 ? "Scène à très forte exposition." : m >= 10000 ? "Scène à bonne exposition." : "Exposition modeste : l'intérêt est surtout sportif.") + "</li>"; }
+    if (cos.length) t += "<li>Les co-streams pèsent en moyenne " + visFmt(cos.reduce(function (a, b) { return a + b; }, 0) / cos.length) + " % des heures regardées : une équipe peut gagner de l'audience en passant chez les co-streamers.</li>";
+    t += "</ul><p class=\"hint\">Lecture indicative, basée uniquement sur les lignes publiées ci-dessous. Les scènes Challenger et amateur publient rarement leurs audiences.</p>";
+    return t;
+  }
+  function viewVisibilite() {
+    var cur = state.visJeu || VIS_JEUX[0];
+    var h = '<section class="card"><div class="card-h"><h2 class="section-title">Visibilité des scènes</h2></div>' +
+      '<p class="hint">Audiences des tournois (pic, moyenne, heures regardées) et poids des co-streams, relevées dans la banque de données Majin. Une case « non publié » veut dire que la donnée n\'a pas été trouvée : rien n\'est estimé.</p><div class="row-actions">';
+    VIS_JEUX.forEach(function (j) { h += '<button class="' + (j === cur ? "btn" : "ghost") + '" type="button" data-act="vis-jeu" data-v="' + esc(j) + '">' + esc(j) + "</button>"; });
+    h += "</div></section>";
+    var c = (state.visCache || {})[cur];
+    if (!c || c.loading) return h + '<section class="card"><div class="empty"><p>Chargement…</p></div></section>';
+    if (c.err) return h + '<section class="card"><p class="hint warn-text">' + esc(c.err) + "</p></section>";
+    if (!c.rows.length) return h + '<section class="card"><div class="empty"><p>Aucune audience relevée pour ce jeu pour l\'instant.</p></div></section>';
+    h += '<section class="card">' + visImpact(c.rows) + '</section><section class="card"><div class="card-h"><h2 class="section-title">Tournois relevés</h2><span class="hint">Copie du ' + esc(c.maj || "") + "</span></div>";
+    c.rows.forEach(function (r) {
+      h += '<div class="queue"><div><strong>' + esc(r.nom) + "</strong> " + (r.niveau ? '<span class="pill v-off">' + esc(r.niveau) + "</span> " : "") + (r.region ? '<span class="pill v-off">' + esc(r.region) + "</span>" : "") + "</div>" +
+        '<p class="hint">Pic : ' + visFmt(visNum(r.peak)) + " · Moyenne : " + visFmt(visNum(r.moy)) + " · Heures regardées : " + visFmt(visNum(r.heures)) + " · Co-streams : " + (visNum(r.cos) == null ? "non publié" : visFmt(visNum(r.cos)) + " %") + "</p>" +
+        (r.costreamers ? '<p class="hint">Co-streamers : ' + esc(r.costreamers) + "</p>" : "") +
+        (r.remarque ? '<p class="hint">' + esc(r.remarque) + "</p>" : "") +
+        '<p class="hint">Source : ' + (/^https?:\/\//.test(r.lien || "") ? '<a href="' + esc(r.lien) + '" target="_blank" rel="noopener noreferrer">' + esc(r.origine || "lien") + "</a>" : esc(r.origine || "")) + (r.lu ? " (lu le " + esc(r.lu) + ")" : "") + "</p></div>";
+    });
+    return h + "</section>";
+  }
+
   function viewCatalogue(ctx) {
     var h = '<section class="card" aria-labelledby="h-search"><div class="card-h"><h2 id="h-search" class="section-title">Rechercher les événements d\'un jeu</h2></div>' +
       '<p class="hint">Tape le nom du jeu, même en abrégé (R6, CoD, Halo…) : l\'outil retrouve sa fiche et cherche tous ses événements, officiels ou non (circuit officiel, LAN d\'organisateurs, ligues communautaires, opens en ligne), sur Liquipedia, les sites des éditeurs et organisateurs, les agrégateurs et la presse. Chaque jeu est revérifié une fois par semaine. Claude traite la demande dans le chat.</p>';
@@ -2557,7 +2604,8 @@ details.card.more { padding: 18px 22px; }
     if (b.tagName === "TR" && e.target.closest("input, select, textarea, a, button:not([data-act])")) return;
     var act = b.getAttribute("data-act"), id = b.getAttribute("data-id");
     switch (act) {
-      case "tab": state.tab = b.getAttribute("data-tab"); state.oppId = null; state.drawer = null; state.picker = null; state.confirm = null; window.scrollTo(0, 0); break;
+      case "vis-jeu": state.visJeu = b.getAttribute("data-v"); visLoad(state.visJeu); break;
+      case "tab": state.tab = b.getAttribute("data-tab"); if (state.tab === "visibilite") visLoad(state.visJeu || VIS_JEUX[0]); state.oppId = null; state.drawer = null; state.picker = null; state.confirm = null; window.scrollTo(0, 0); break;
       case "new-opp": state.tab = "club"; state.oppId = null; state.detail = false; window.scrollTo(0, 0); break;
       case "ana-start":
         var hg = state.home.autre ? String(state.home.autreNom || "").trim() : state.home.jeu;
@@ -2651,6 +2699,7 @@ details.card.more { padding: 18px 22px; }
     var C = window.__SR_CLAUDE || window.claude;
     if (C && C.use) {
       C.use("pageReader").then(function (rd) { state.reader = typeof rd === "function" ? rd : null; requestRender(); }).catch(function () {});
+      C.use("visReader").then(function (rd) { state.vis = typeof rd === "function" ? rd : null; }).catch(function () {});
       C.use("bankReader").then(function (rd) { state.bank = typeof rd === "function" ? rd : null; }).catch(function () {});
       C.use("sample").then(function (smp) {
         state.sample = smp || null;
