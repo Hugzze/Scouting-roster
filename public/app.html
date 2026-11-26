@@ -162,6 +162,8 @@ button.scen-card { font: inherit; color: inherit; text-align: left; cursor: poin
 .scen-card.open { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 .scen-tap { font-size: 11px; }
 .scen-detail { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.lft-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 10px; }
+.lft-list li { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .scen-card.main { border-color: var(--gold); }
 .scen-h { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; width: 100%; font-size: 13px; }
 .scen-n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1408,7 +1410,48 @@ details.card.more { padding: 18px 22px; }
     if (changed || !anaScope(o).list.length) anaRun(o);
   }
 
-  function viewAnalysis(ctx, id) {
+  /* ---------- recherche d'équipes et de joueurs en recherche de structure (Grok si dispo, sinon Gemini) ---------- */
+  function viewAnalysis(ctx, id) { var o = findOpp(id); return viewAnalysisBase(ctx, id) + (o ? lftHtml(o) : ""); }
+  function lftHtml(o) {
+    var st = state.lft && state.lft[o.id], busy = st && st.phase === "reading";
+    var h = '<section class="card lft"><div class="sub-title">Équipes et joueurs en recherche de structure</div>';
+    if (!st || st.phase === "idle") h += '<p class="hint">Je cherche les annonces récentes (réseaux sociaux, forums, sites) d\'équipes ou de joueurs de ' + esc(o.jeu || "ce jeu") + " qui cherchent une structure.</p>";
+    if (busy) h += '<p class="ana-msg" aria-live="polite">Recherche en cours… ça peut prendre jusqu\'à une minute.</p>';
+    else h += '<div class="row-actions"><button class="ghost" type="button" data-act="lft-run" data-id="' + esc(o.id) + '"' + (o.jeu ? "" : " disabled") + ">" + (st && st.phase === "done" ? "Relancer la recherche" : "Chercher des équipes ou joueurs en recherche de structure") + "</button></div>";
+    if (st && st.phase === "error") h += '<p class="flash err">' + esc(st.msg) + "</p>";
+    if (st && st.phase === "done") {
+      var list = st.items || [];
+      if (st.remarque) h += '<p class="hint">' + esc(st.remarque) + "</p>";
+      if (!list.length) h += '<p class="hint">Rien de récent trouvé pour ce jeu.</p>';
+      else h += '<ul class="lft-list">' + list.map(function (it) {
+        var link = it.source && /^https?:\/\//.test(it.source) ? ' · <a href="' + esc(it.source) + '" target="_blank" rel="noopener noreferrer">Voir l\'annonce</a>' : "";
+        return "<li><strong>" + esc(it.nom || "Sans nom") + '</strong> <span class="mut">(' + esc(it.type === "joueur" ? "joueur" : "équipe") + (it.role ? ", " + esc(it.role) : "") + ")</span>" +
+          '<div class="mut">' + [it.niveau, it.region, it.date].filter(Boolean).map(esc).join(" · ") + link + "</div>" + (it.resume ? "<div>" + esc(it.resume) + "</div>" : "") + "</li>";
+      }).join("") + "</ul>";
+      h += '<p class="hint">Résultats issus de publications publiques, à vérifier avant tout contact. ' + (st.via ? "Recherche faite avec " + esc(st.via) + "." : "") + "</p>";
+    }
+    return h + "</section>";
+  }
+  function lftRun(o) {
+    if (!o.jeu) return;
+    state.lft = state.lft || {};
+    if (state.lft[o.id] && state.lft[o.id].phase === "reading") return;
+    if (!state.sample) { state.lft[o.id] = { phase: "error", msg: "La lecture automatique n'est pas disponible ici." }; render(); return; }
+    state.lft[o.id] = { phase: "reading" }; render();
+    var prompt = "Date du jour : " + new Date().toISOString().slice(0, 10) + ". Jeu : " + o.jeu + ".\n" +
+      "Cherche sur X (Twitter), Reddit, les forums, les serveurs et sites publics d'annonces les publications des 60 derniers jours où des ÉQUIPES ou des JOUEURS de ce jeu disent chercher une structure, une équipe ou un sponsor (mots-clés : LFT, LFO, recherche équipe, recherche structure, looking for org, free agent, open to offers). Priorité Europe et France, puis le reste du monde.\n" +
+      "Règles : uniquement des publications publiques réellement trouvées, avec leur lien ; n'invente rien, aucun nom ni lien ; pas d'informations privées (seulement le pseudo public) ; maximum 15 résultats, les plus récents et les plus pertinents d'abord.\n" +
+      'Réponds uniquement par un objet JSON : {"remarque": "une phrase", "resultats": [{"type": "equipe" ou "joueur", "nom": "pseudo ou nom", "role": "poste ou besoin", "niveau": "niveau annoncé ou null", "region": "zone ou null", "date": "AAAA-MM-JJ ou null", "source": "URL de la publication", "resume": "une phrase"}]}';
+    state.sample.json(prompt, { search: true, provider: "grok", noGuide: true }).then(function (r) {
+      var arr = r && Array.isArray(r.resultats) ? r.resultats : [];
+      state.lft[o.id] = { phase: "done", remarque: r && typeof r.remarque === "string" ? r.remarque : "", items: arr.filter(function (x) { return x && typeof x === "object" && x.nom; }).slice(0, 15), via: r && r.__via || "" };
+      render();
+    }, function (e) {
+      state.lft[o.id] = { phase: "error", msg: sceneErrMsg(e) }; render();
+    });
+  }
+
+  function viewAnalysisBase(ctx, id) {
     var o = findOpp(id), x = null; ctx.all.forEach(function (y) { if (y.opp.id === id) x = y; });
     var ana = state.ana && state.ana.id === id ? state.ana : null, k = function (f) { return "opp|" + o.id + "|" + f; };
     var h = '<div class="crumbs"><button class="link" type="button" data-act="back-club">← Accueil</button></div>' +
@@ -2612,6 +2655,7 @@ details.card.more { padding: 18px 22px; }
         if (!hg) { setFlash("err", "Choisis d'abord un jeu dans la liste.", "home"); break; }
         if (!state.home.niveau) { setFlash("err", "Choisis le niveau : Pro (T1) ou Challenger (T2). Ça change les tournois pris en compte.", "home"); break; }
         state.flash = null; startAnalysis(hg, state.home.niveau); break;
+      case "lft-run": var olf = findOpp(id); if (olf) lftRun(olf); return;
       case "ana-run": var oar = findOpp(id); if (oar) { state.confirm = null; anaRun(oar); } return;
       case "ana-repick": var orp2 = findOpp(id); if (orp2) { autoPick(orp2); save(); } break;
       case "ana-ans":

@@ -381,10 +381,31 @@ async function askClaude(env, prompt, images, opts) {
   if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Claude n'a rien renvoyé (arrêt : " + (stop || "inconnu") + "). Relance l'analyse." };
   return { text: text, truncated: truncated };
 }
+/* ---------- recherche par Grok (xAI) : lit X en direct, utilisé seulement si XAI_API_KEY est configurée ---------- */
+async function askGrok(env, prompt) {
+  var key = String(env.XAI_API_KEY || "").replace(/\s+/g, "");
+  if (!key) throw { status: 503, code: "not_configured", message: "Pas de clé xAI." };
+  var res;
+  try {
+    res = await fetch((env.XAI_BASE_URL || "https://api.x.ai") + "/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key },
+      body: JSON.stringify({ model: env.XAI_MODEL || "grok-4", input: [{ role: "user", content: prompt }], tools: [{ type: "x_search" }, { type: "web_search" }] }),
+      signal: AbortSignal.timeout(80000)
+    });
+  } catch (e) { throw { status: 502, code: "upstream_error", message: "Grok ne répond pas." }; }
+  if (!res.ok) throw { status: 502, code: "upstream_error", message: "Grok a refusé la demande (" + res.status + ")." };
+  var d = await res.json(), text = typeof d.output_text === "string" ? d.output_text : "";
+  if (!text && Array.isArray(d.output)) d.output.forEach(function (it) { (it && Array.isArray(it.content) ? it.content : []).forEach(function (c) { if (c && typeof c.text === "string") text += c.text; }); });
+  if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Grok n'a rien renvoyé." };
+  return { text: text, truncated: false, via: "Grok" };
+}
+
 /* Gratuit d'abord : Gemini si une clé est configurée, Claude seulement en secours (ou seul si pas de clé Gemini). */
 async function askModel(env, prompt, images, opts) {
+  opts = opts || {};
+  if (opts.provider === "grok" && env.XAI_API_KEY) { try { return await askGrok(env, prompt); } catch (e) { /* repli sur Gemini ou Claude */ } }
   if (env.GEMINI_API_KEY && !env.PREFER_CLAUDE) {
-    try { return await askGemini(env, prompt, images, opts); }
+    try { var rg = await askGemini(env, prompt, images, opts); rg.via = "Gemini"; return rg; }
     catch (e) { if (!env.ANTHROPIC_API_KEY) throw e; }
     return askClaude(env, prompt, images, opts);
   }
@@ -625,7 +646,7 @@ async function handleApi(request, env, url) {
         var out;
         try {
           ctl.enqueue(enc.encode(" "));
-          var r = await askModel(env, await withGuide(env, prompt), imgs, { search: b2.search === true });
+          var r = await askModel(env, b2.noGuide === true ? prompt : await withGuide(env, prompt), imgs, { search: b2.search === true, provider: b2.provider === "grok" ? "grok" : "" });
           await addUse(env, "ai"); await addUse(env, "ai:" + me.uid);
           out = r;
         } catch (e) {
