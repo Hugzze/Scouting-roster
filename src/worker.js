@@ -403,17 +403,15 @@ async function askGrok(env, prompt) {
 /* Gratuit d'abord : Gemini si une clé est configurée, Claude seulement en secours (ou seul si pas de clé Gemini). */
 async function askModel(env, prompt, images, opts) {
   opts = opts || {};
-  if (opts.provider === "grok" && env.XAI_API_KEY) { try { return await askGrok(env, prompt); } catch (e) { /* repli sur Gemini ou Claude */ } }
-  if (env.GEMINI_API_KEY && !env.PREFER_CLAUDE) {
-    try { var rg = await askGemini(env, prompt, images, opts); rg.via = "Gemini"; return rg; }
-    catch (e) { if (!env.ANTHROPIC_API_KEY) throw e; }
-    return askClaude(env, prompt, images, opts);
-  }
-  if (env.ANTHROPIC_API_KEY) {
-    try { return await askClaude(env, prompt, images, opts); }
-    catch (e) { if (!env.GEMINI_API_KEY) throw e; }
-  }
-  return askGemini(env, prompt, images, opts);
+  var errs = [], last = null;
+  function note(nom, e) { last = e; errs.push(nom + " : " + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 160)); }
+  if (opts.provider === "grok" && env.XAI_API_KEY) { try { return await askGrok(env, prompt); } catch (e) { note("Grok", e); } }
+  if (env.GEMINI_API_KEY) { try { var rg = await askGemini(env, prompt, images, opts); rg.via = "Gemini"; return rg; } catch (e) { note("Gemini", e); } }
+  if (env.ANTHROPIC_API_KEY) { try { var rc = await askClaude(env, prompt, images, opts); rc.via = "Claude"; return rc; } catch (e) { note("Claude", e); } }
+  if (!errs.length) throw { status: 503, code: "not_configured", message: "Aucune clé d'IA n'est configurée sur le serveur." };
+  /* un seul fournisseur essayé : on garde son erreur telle quelle ; plusieurs : on les montre toutes, la première en tête */
+  if (errs.length === 1) throw last;
+  throw { status: (last && last.status) || 502, code: (last && last.code) || "upstream_error", message: "Toutes les IA ont échoué. " + errs.join(" | ") };
 }
 
 /* ---------- guides par jeu (Google Sheet "Banque de données Scouting Roster") ---------- */
