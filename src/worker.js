@@ -393,7 +393,7 @@ async function askGrok(env, prompt) {
       signal: AbortSignal.timeout(80000)
     });
   } catch (e) { throw { status: 502, code: "upstream_error", message: "Grok ne répond pas." }; }
-  if (!res.ok) throw { status: 502, code: "upstream_error", message: "Grok a refusé la demande (" + res.status + ")." };
+  if (!res.ok) { var gt = ""; try { gt = (await res.text()).replace(/\s+/g, " ").slice(0, 220); } catch (e) {} throw { status: 502, code: "upstream_error", message: "Grok a refusé la demande (" + res.status + ") " + gt }; }
   var d = await res.json(), text = typeof d.output_text === "string" ? d.output_text : "";
   if (!text && Array.isArray(d.output)) d.output.forEach(function (it) { (it && Array.isArray(it.content) ? it.content : []).forEach(function (c) { if (c && typeof c.text === "string") text += c.text; }); });
   if (!text.trim()) throw { status: 422, code: "empty_completion", message: "Grok n'a rien renvoyé." };
