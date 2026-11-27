@@ -162,6 +162,7 @@ button.scen-card { font: inherit; color: inherit; text-align: left; cursor: poin
 .scen-card.open { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 .scen-tap { font-size: 11px; }
 .scen-detail { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.lft-links a { text-decoration: none; display: inline-block; }
 .lft-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 10px; }
 .lft-list li { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .scen-card.main { border-color: var(--gold); }
@@ -1418,7 +1419,14 @@ details.card.more { padding: 18px 22px; }
     if (!st || st.phase === "idle") h += '<p class="hint">Je cherche les annonces récentes (réseaux sociaux, forums, sites) d\'équipes ou de joueurs de ' + esc(o.jeu || "ce jeu") + " qui cherchent une structure.</p>";
     if (busy) h += '<p class="ana-msg" aria-live="polite">Recherche en cours… ça peut prendre jusqu\'à une minute.</p>';
     else h += '<div class="row-actions"><button class="ghost" type="button" data-act="lft-run" data-id="' + esc(o.id) + '"' + (o.jeu ? "" : " disabled") + ">" + (st && st.phase === "done" ? "Relancer la recherche" : "Chercher des équipes ou joueurs en recherche de structure") + "</button></div>";
-    if (st && st.phase === "error") h += '<p class="flash err">' + esc(st.msg) + "</p>";
+    if (st && st.phase === "error") h += '<p class="flash err">' + esc(st.msg) + '</p><p class="hint">Pas grave : ouvre directement les recherches ci-dessous, elles marchent sans IA.</p>';
+    if (o.jeu) {
+      var g = encodeURIComponent(o.jeu), kw = "(LFT OR LFO OR \"recherche équipe\" OR \"recherche structure\" OR \"looking for team\" OR \"looking for org\")";
+      var q = encodeURIComponent('"' + o.jeu + '" ' + kw);
+      h += '<div class="row-actions lft-links"><a class="ghost" href="https://x.com/search?q=' + q + '&f=live" target="_blank" rel="noopener noreferrer">Chercher sur X</a>' +
+        '<a class="ghost" href="https://www.reddit.com/search/?q=' + encodeURIComponent(o.jeu + " LFT OR \"looking for team\" OR \"recherche équipe\"") + '&sort=new" target="_blank" rel="noopener noreferrer">Chercher sur Reddit</a>' +
+        '<a class="ghost" href="https://www.google.com/search?q=' + q + '&tbs=qdr:m" target="_blank" rel="noopener noreferrer">Chercher sur Google (1 mois)</a></div>';
+    }
     if (st && st.phase === "done") {
       var list = st.items || [];
       if (st.remarque) h += '<p class="hint">' + esc(st.remarque) + "</p>";
